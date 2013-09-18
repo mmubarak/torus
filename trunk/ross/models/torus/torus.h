@@ -11,9 +11,8 @@
 // processing time of message at the MPI level-- from DCMF paper
 #define MEAN_PROCESS 750.0
 #define MEAN_INTERVAL 1
-#define MPI_MESSAGE_SIZE 256
 #define MPI_MESSAGE_LIMIT 50 /*Number of messages to be injected by each node */
-#define HOP_DELAY 900 /*Processing delay on each node */
+#define HOP_DELAY 175 /*Processing delay on each node */
 #define PACKET_SIZE_LIMIT 256 /* maximum size of packet in bytes */
 #define BANDWIDTH 0.374 /*Link bandwidth*/
 #define OVERHEADS 3000.0 /*MPI software overheads*/
@@ -21,11 +20,11 @@
 // Total available tokens on a VC = VC buffer size / token size
 #define NUM_BUF_SLOTS 1024/TOKEN_SIZE /*Each VC has a specific number of tokens and each token is of 32 bytes */
 #define TOKEN_SIZE 32
-#define PING_PONG 1 /*Set 1 for a ping pong test, 0 for a bisection test */
+#define PING_PONG 0 /*Set 1 for a ping pong test, 0 for a bisection test */
 
 // finite buffer
 #define N_dims 3
-#define TRACK 3136
+#define TRACK 48
 #define N_COLLECT_POINTS 20
 
 #define TRACK_LP 0
@@ -105,8 +104,8 @@ struct nodes_message
   int dest[N_dims];
 
   tw_lpid dest_lp;
+  tw_lpid origin_lp;
 
-  int sender_lp;
   int my_N_queue;
   int my_N_hop;
   int queueing_times;
@@ -115,6 +114,7 @@ struct nodes_message
   int next_stop;
   int packet_size;
   int count;
+  int wait_type;
 };
 
 struct waiting_list
@@ -128,6 +128,7 @@ struct waiting_list
 };
 tw_stime         average_travel_time = 0;
 tw_stime         total_time = 0;
+tw_stime 	 total_lp_time = 0;
 tw_stime         max_latency = 0;
 
 static unsigned long long       N_finished_packets = 0;
@@ -147,7 +148,11 @@ static int	 nlp_nodes_per_pe;
 static int 	 nlp_mpi_procs_per_pe;
 static int total_lps;
 
+// run time arguments
 static int	 opt_mem = 3000;
+static long mpi_message_size = 256;
+static int num_mpi_msgs = 50;
+static int distance = 1;
 
 tw_stime g_tw_last_event_ts = -1.0;
 tw_lpid  g_tw_last_event_lpid = 0;
@@ -156,6 +161,7 @@ FILE *g_event_trace_file=NULL;
 int g_enable_event_trace=1;
 int num_buf_slots;
 int num_packets;
+int lp_hops = 0;
 
 float link_delay=0.0;
 float credit_delay = 0.0;
