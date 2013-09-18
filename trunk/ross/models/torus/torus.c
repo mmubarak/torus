@@ -39,7 +39,6 @@ torus_init( nodes_state * s,
       half_length[ i ] = dim_length[ i ] / 2;
     }
 
-//  printf("\n LP %d assigned dimensions %d %d %d ", (int)lp->gid, s->dim_position[ 0 ], s->dim_position[ 1 ], s->dim_position[ 2 ]);
   int factor[ N_dims ];
   factor[ 0 ] = 1;
   for ( i=1; i < N_dims; i++ )
@@ -53,6 +52,7 @@ torus_init( nodes_state * s,
   for ( i = 0; i < N_dims; i++ )
     temp_dim_pos[ i ] = s->dim_position[ i ];
 
+// printf("\n LP %d assigned dimensions %d %d %d %d %d", (int)lp->gid, s->dim_position[ 0 ], s->dim_position[ 1 ], s->dim_position[ 2 ], s->dim_position[ 3 ], s->dim_position[ 4 ]);
   // calculate minus neighbour's lpID
   for ( j = 0; j < N_dims; j++ )
     {
@@ -63,7 +63,10 @@ torus_init( nodes_state * s,
         s->neighbour_minus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
       
       temp_dim_pos[ j ] = s->dim_position[ j ];
+
     }
+//for ( j = 0; j < N_dims; j++ )
+//  printf( " Neighbor %d LP ID %d ", j, s->neighbour_minus_lpID[ j ] );
 
   // calculate plus neighbour's lpID
   for ( j = 0; j < N_dims; j++ )
@@ -76,6 +79,9 @@ torus_init( nodes_state * s,
 
       temp_dim_pos[ j ] = s->dim_position[ j ];
     }
+
+//for ( j = 0; j < N_dims; j++ )
+//  printf( " Neighbor %d LP ID %d ", j, s->neighbour_plus_lpID[ j ]);
 
   for(j=0; j<2*N_dims; j++)
    {
@@ -110,97 +116,6 @@ mpi_init( mpi_process * s,
     s->message_counter++;
     s->next_available_time = 0;
     tw_event_send( e );
-}
-/*Sends a 8-byte credit back to the torus node LP that sent the message */
-void 
-credit_send( nodes_state * s, 
-	    tw_bf * bf, 
-	    tw_lp * lp, 
-	    nodes_message * msg )
-{
-#if DEBUG
-//if(lp->gid == TRACK_LP)
-//	printf("\n (%lf) sending credit tmp_dir %d tmp_dim %d %lf ", tw_now(lp), msg->source_direction, msg->source_dim, credit_delay );
-#endif
-    tw_event * buf_e;
-    nodes_message *m;
-    tw_stime ts;
-    ts =  credit_delay;
-  
-    buf_e = tw_event_new( lp->gid, ts, lp );
-    //buf_e = tw_event_new(msg->sender_lp, ts, lp);
-
-    m = tw_event_data(buf_e);
-    m->saved_vc = msg->saved_vc;
-    m->source_direction = msg->source_direction;
-    m->source_dim = msg->source_dim;
-    m->packet_size = msg->packet_size;
-
-    m->type = CREDIT;
-    tw_event_send( buf_e );
-}
-
-/*Invoked when a packet arrives at a torus node, it simply forwards the packet to the same LP for furthering processing*/
-void 
-packet_arrive( nodes_state * s, 
-	      tw_bf * bf, 
-	      nodes_message * msg, 
-              tw_lp * lp )
-{
-
-  int i;
-  tw_stime ts;
-  tw_event *e1;
-  nodes_message *m1;
-
-  if( msg->packet_ID == TRACK )
-    {
-      printf( "[LP %lld] packet %lld has arrived\n", 
-	      (long long int)lp->gid, msg->packet_ID );
-      for( i = 0; i < N_dims; i++ )
-	printf( "the %d dim position is %d\n",
-		i,
-		s->dim_position[i]);
-      printf("packet %lld destination is\n",
-	     msg->packet_ID);
-      for( i = 0; i < N_dims; i++ )
-	printf(" the %d dim position is %d\n", 
-	       i,
-	       msg->dest[i]);
-      printf("lp time is %f travel start time is %f\n",
-	     tw_now(lp),
-	     msg->travel_start_time);
-      printf( "My hop now is %d\n" , msg->my_N_hop );
-      printf( "\n" );
-    }
-
-  // One more arrives and wait to be processed
-  msg->my_N_hop++;
-  ts = 10;
-  e1 = tw_event_new( lp->gid, ts, lp );
-  //e = tw_event_new(lp->gid, s->next_available_time + ts - tw_now(lp), lp);
-
-  m1 = tw_event_data( e1 );
-  m1->type = PROCESS;
-  m1->count = msg->count;
-    
-   //carry on the message info	
-   for( i = 0; i < N_dims; i++ )
-     m1->dest[i] = msg->dest[i];
-
-   m1->dest_lp = msg->dest_lp;
-   m1->transmission_time = msg->transmission_time;
-    
-   m1->source_dim = msg->source_dim;
-   m1->source_direction = msg->source_direction;
-   m1->saved_vc = msg->saved_vc;
-    
-   m1->packet_ID = msg->packet_ID;	  
-   m1->travel_start_time = msg->travel_start_time;
-   m1->origin_lp = msg->origin_lp;
-
-   m1->my_N_hop = msg->my_N_hop;
-   tw_event_send(e1);
 }
 
 /*Returns the next neighbor to which the packet should be routed by using DOR (Taken from Ning's code of the torus model)*/
@@ -253,242 +168,6 @@ void dimension_order_routing( nodes_state * s,
 	  break;
 	}
     }
-}
-/*Inserts a packet in the injection queue which then waits to be sent over the network */
-void update_waiting_list( nodes_state * s, 
-		        nodes_message * msg, 
-			tw_lp * lp )
-{
-   waiting_list * tmp = malloc(sizeof(waiting_list));
-   waiting_list * tmp2 = malloc(sizeof(waiting_list));
-
-   tmp->dim = msg->source_dim;
-   tmp->dir = msg->source_direction;
-   tmp->packet = malloc(sizeof(nodes_message));
-   tmp->packet = msg;
-   tmp->vc = 0;
-   tmp->next = NULL;
-
-    
-   //if(msg->wait_type != GENERATE && msg->wait_type != SEND)
-   //  printf("\n Invalid wait type %d ", msg->wait_type);
-
-   if( s->root == NULL )
-   {
-      // Insert at the root
-      s->root = tmp;
-   }
-  else
-   {
-     tmp2 = s->root;
-     // Traverse down to the end of the list
-     while( tmp2->next != NULL )
-      tmp2 = tmp2->next;
-     
-     // Append at the end of the list
-      tmp2->next = tmp;        
-   }
-}
-// send a packet from one torus node to another torus node
-// A packet can be up to 256 bytes on BG/L and BG/P and up to 512 bytes on BG/Q
-void packet_send( nodes_state * s, 
-	         tw_bf * bf, 
-		 nodes_message * msg, 
-		 tw_lp * lp )
-{   
-#if DEBUG
-// if( lp->gid == TRACK_LP )
-//	printf("\n Sending credit %lf ", tw_now(lp) );
-#endif 
-    credit_send( s, bf, lp, msg );
-
-    int i, vc = 0, tmp_dir, tmp_dim;
-    tw_stime ts;
-    tw_event *e;
-    nodes_message *m;
-    tw_lpid dst_lp = msg->dest_lp;
-  
-    int tokens_min = 0;
-    
-    if( msg->next_stop == -1 )  
-     {
- 	 dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );     
-         
-        // Packet is changing dimension
-         if(msg->source_dim != tmp_dim)    
-         {
-           //if( msg->packet_ID == TRACK )
-	   //  printf("\n Changing dimensions, src dimension %d dest dimension %d  ", msg->source_dim, tmp_dim);
-
-           tokens_min = 2 * msg->packet_size / TOKEN_SIZE;		   
-         } 
-        else
-         {
-           tokens_min = msg->packet_size / TOKEN_SIZE;
-         }
-
-        /*if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] <= tokens_min ) 
-         {
-          // re-schedule the message in the future
-           e = tw_event_new( lp->gid, 0.01, lp );
-           m = tw_event_data( e );
-           m->type = WAIT;	
-           m->wait_type = SEND;
-	   m->source_dim = tmp_dim;
-	   m->next_stop = dst_lp;
-	   m->dest_lp = msg->dest_lp;	
-	   m->count = msg->count;
-	   m->origin_lp = msg->origin_lp;
-           m->source_direction = tmp_dir;
-           m->saved_vc = 0;
-	   tw_event_send( e );
-	   return;
-         }*/ 
-     }
-    else
-      {
-	 dst_lp = msg->next_stop;  
-         tmp_dim = msg->source_dim;
-         tmp_dir = msg->source_direction;
-      }
-    ts = tw_rand_exponential( lp->rng, ( double )link_delay/1000 )+
-                               link_delay + 
-		               msg->transmission_time;
-
-//    printf("\n Sending message to %d dir %d dim %d", (int)dst_lp, tmp_dir, tmp_dim);
-    e = tw_event_new( dst_lp, ts, lp );
-
-    //if(msg->packet_ID == TRACK)
-   //printf("\n (%lf) [LP %d] Packet %lld being sent to destination %lld source dim %d source dir %d Link delay %f ", 
-               //			  tw_now(lp), (int)lp->gid, msg->packet_ID,msg->dest_lp, s->source_dim, s->direction, link_delay);
-    m = tw_event_data( e );
-    m->type = ARRIVAL;
- 
-    //Carry on the message info
-    m->source_dim = tmp_dim;
-    m->source_direction = tmp_dir;
-    m->packet_size = msg->packet_size;
-    m->saved_vc = vc;
-    m->next_stop = msg->next_stop;
-    m->origin_lp = msg->origin_lp;
-   
-    for( i = 0; i < N_dims; i++ )
-       m->dest[ i ] = msg->dest[ i ];
-     
-    m->dest_lp = msg->dest_lp;
-    m->transmission_time = msg->transmission_time;
-  
-    m->packet_ID = msg->packet_ID;
-    m->travel_start_time = msg->travel_start_time;
-    m->count = msg->count;
-  
-    m->my_N_hop = msg->my_N_hop;
-    tw_event_send( e );
-
-}
-/*Once a credit arrives at the node, this method picks a waiting packet in the injection queue and schedules it */
-void schedule_waiting_msg( nodes_state * s, 
-			   tw_bf * bf, 
-			   nodes_message * msg, 
-			   tw_lp * lp )
-{
-  if( s->root == NULL )
-    return;
-
-  waiting_list * current = s->root;
-  waiting_list * head = s->root;
-  waiting_list * prev;
-
-  while( current != NULL )
-  {
-    if( current->dim == msg->source_dim && current->dir == msg->source_direction && current->vc == msg->saved_vc )
-     {
-     //if(current->packet->wait_type == GENERATE )
-     {
-      //&& s->buffer[ current->dir + ( current->dim * 2 ) ][ 0 ] >= ( 2 * msg->packet_size )/TOKEN_SIZE )
-        packet_generate( s, bf, current->packet, lp );
-     }
-     /*else if( current->packet->wait_type == SEND )
-       {
-         printf("\n Scheduling packet ");
-         packet_send( s, bf, current->packet, lp );
-      }
-      else
-	 printf("\n INVALID wait type %d ", msg->wait_type);*/
- 
-      if( current == head )
-        s->root = head->next;
-       else
-        prev->next = current->next;
- 
-     free( current );
-     break;
-     }
-   else
-   {
-    prev = current;
-    current = current->next;
-   }
-  }
-}
-/*Processes the packet after it arrives on the from the neighboring torus node */
-void packet_process(nodes_state * s, 
-		    tw_bf * bf, 
-		    nodes_message * msg, 
-		    tw_lp * lp)
-{
-  int i;
-  tw_event *e;
-  tw_stime ts;
-  nodes_message *m;
-
-  s->N_wait_to_be_processed--;
-  
-  if(lp->gid==msg->dest_lp)
-    {   
-      if(msg->count == num_packets-1)
-      {
-         ts = 0.01;
-         e = tw_event_new(lp->gid + N_nodes, ts + OVERHEADS + MEAN_PROCESS, lp);
-	 m = tw_event_data(e);
-         m->type = MPI_RECV;
-         m->travel_start_time = msg->travel_start_time;
-	 m->origin_lp = msg->origin_lp;
-	 m->my_N_hop = msg->my_N_hop;
-	 m->packet_ID = msg->packet_ID;
-	 tw_event_send(e);
-     }
-	N_finished_packets++;
-	int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
-	N_finished_storage[index]++;
-	total_hops += msg->my_N_hop;
-    }
-  else
-    {
-      e = tw_event_new(lp->gid, HOP_DELAY * (msg->count + 1), lp);
-      m = tw_event_data( e );
-      m->type = SEND;
-      m->origin_lp = msg->origin_lp;
-      
-      // Carry on the message info
-      for( i = 0; i < N_dims; i++ )
-	m->dest[i] = msg->dest[i];
-
-      m->dest_lp = msg->dest_lp;
-      m->transmission_time = msg->transmission_time;
-      m->saved_vc = msg->saved_vc; 
-      
-      m->source_dim = msg->source_dim;
-      m->source_direction = msg->source_direction;
-      
-      m->packet_ID = msg->packet_ID;	  
-      m->travel_start_time = msg->travel_start_time;
-
-      m->my_N_hop = msg->my_N_hop;
-      m->count = msg->count;
-      m->next_stop = -1;
-      tw_event_send(e);
-   }
 }
 /*Generates a packet. If there are two buffer slots available, then the packet is 
 injected in the network. Else, the packet is placed in the injection queue */
@@ -583,6 +262,340 @@ if( msg->packet_ID == TRACK )
 
     tw_event_send( e );
 }
+/*Sends a 8-byte credit back to the torus node LP that sent the message */
+void 
+credit_send( nodes_state * s, 
+	    tw_bf * bf, 
+	    tw_lp * lp, 
+	    nodes_message * msg )
+{
+#if DEBUG
+//if(lp->gid == TRACK_LP)
+//	printf("\n (%lf) sending credit tmp_dir %d tmp_dim %d %lf ", tw_now(lp), msg->source_direction, msg->source_dim, credit_delay );
+#endif
+    tw_event * buf_e;
+    nodes_message *m;
+    tw_stime ts;
+    ts =  credit_delay;
+  
+    buf_e = tw_event_new( lp->gid, ts, lp );
+    //buf_e = tw_event_new(msg->sender_lp, ts, lp);
+
+    m = tw_event_data(buf_e);
+    m->saved_vc = msg->saved_vc;
+    m->source_direction = msg->source_direction;
+    m->source_dim = msg->source_dim;
+    m->packet_size = msg->packet_size;
+
+    m->type = CREDIT;
+    tw_event_send( buf_e );
+}
+
+/*Invoked when a packet arrives at a torus node, it simply forwards the packet to the same LP for furthering processing*/
+void 
+packet_arrive( nodes_state * s, 
+	      tw_bf * bf, 
+	      nodes_message * msg, 
+              tw_lp * lp )
+{
+
+  int i;
+  tw_stime ts;
+  tw_event *e1;
+  nodes_message *m1;
+
+  if( msg->packet_ID == TRACK )
+    {
+      printf( "[LP %lld] packet %lld has arrived\n", 
+	      (long long int)lp->gid, msg->packet_ID );
+      for( i = 0; i < N_dims; i++ )
+	printf( "the %d dim position is %d\n",
+		i,
+		s->dim_position[i]);
+      printf("packet %lld destination is\n",
+	     msg->packet_ID);
+      for( i = 0; i < N_dims; i++ )
+	printf(" the %d dim position is %d\n", 
+	       i,
+	       msg->dest[i]);
+      printf("lp time is %f travel start time is %f\n",
+	     tw_now(lp),
+	     msg->travel_start_time);
+      printf( "My hop now is %d destination LP ID %d \n" , msg->my_N_hop, (int)msg->dest_lp );
+      printf( "\n" );
+    }
+
+  // One more arrives and wait to be processed
+  msg->my_N_hop++;
+  ts = 0.01;
+  e1 = tw_event_new( lp->gid, ts, lp );
+  //e = tw_event_new(lp->gid, s->next_available_time + ts - tw_now(lp), lp);
+
+  m1 = tw_event_data( e1 );
+  m1->type = PROCESS;
+  m1->count = msg->count;
+    
+   //carry on the message info	
+   for( i = 0; i < N_dims; i++ )
+     m1->dest[i] = msg->dest[i];
+
+   m1->dest_lp = msg->dest_lp;
+   m1->transmission_time = msg->transmission_time;
+    
+   m1->source_dim = msg->source_dim;
+   m1->source_direction = msg->source_direction;
+   m1->saved_vc = msg->saved_vc;
+    
+   m1->packet_ID = msg->packet_ID;	  
+   m1->travel_start_time = msg->travel_start_time;
+   m1->origin_lp = msg->origin_lp;
+
+   m1->my_N_hop = msg->my_N_hop;
+   m1->packet_size = msg->packet_size;
+   m1->sender_lp = msg->sender_lp;
+
+   tw_event_send(e1);
+}
+
+/*Inserts a packet in the injection queue which then waits to be sent over the network */
+void update_waiting_list( nodes_state * s, 
+		        nodes_message * msg, 
+			tw_lp * lp )
+{
+   waiting_list * tmp = malloc(sizeof(waiting_list));
+   waiting_list * tmp2 = malloc(sizeof(waiting_list));
+
+   tmp->dim = msg->source_dim;
+   tmp->dir = msg->source_direction;
+   tmp->packet = malloc(sizeof(nodes_message));
+   tmp->packet = msg;
+   tmp->vc = 0;
+   tmp->next = NULL;
+
+    
+   //if(msg->wait_type != GENERATE && msg->wait_type != SEND)
+   //  printf("\n Invalid wait type %d ", msg->wait_type);
+
+   if( s->root == NULL )
+   {
+      // Insert at the root
+      s->root = tmp;
+   }
+  else
+   {
+     tmp2 = s->root;
+     // Traverse down to the end of the list
+     while( tmp2->next != NULL )
+      tmp2 = tmp2->next;
+     
+     // Append at the end of the list
+      tmp2->next = tmp;        
+   }
+}
+// send a packet from one torus node to another torus node
+// A packet can be up to 256 bytes on BG/L and BG/P and up to 512 bytes on BG/Q
+void packet_send( nodes_state * s, 
+	         tw_bf * bf, 
+		 nodes_message * msg, 
+		 tw_lp * lp )
+{   
+#if DEBUG
+// if( lp->gid == TRACK_LP )
+//	printf("\n Sending credit %lf ", tw_now(lp) );
+#endif 
+    credit_send( s, bf, lp, msg );
+
+    int i, vc = 0, tmp_dir, tmp_dim;
+    tw_stime ts;
+    tw_event *e;
+    nodes_message *m;
+    tw_lpid dst_lp = msg->dest_lp;
+  
+    int tokens_min = 0;
+    
+    if( msg->next_stop == -1 )  
+     {
+ 	 dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );     
+         
+        // Packet is changing dimension
+         if(msg->source_dim != tmp_dim)    
+         {
+           //if( msg->packet_ID == TRACK )
+	   //  printf("\n Changing dimensions, src dimension %d dest dimension %d  ", msg->source_dim, tmp_dim);
+
+           tokens_min = 2 * msg->packet_size / TOKEN_SIZE;		   
+         } 
+        else
+         {
+           tokens_min = msg->packet_size / TOKEN_SIZE;
+         }
+
+        if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] <= tokens_min ) 
+         {
+          // re-schedule the message in the future
+           e = tw_event_new( lp->gid, 0.01, lp );
+           m = tw_event_data( e );
+           m->type = WAIT;	
+           m->wait_type = SEND;
+	   m->source_dim = tmp_dim;
+	   m->next_stop = dst_lp;
+	   m->dest_lp = msg->dest_lp;	
+	   m->count = msg->count;
+	   m->origin_lp = msg->origin_lp;
+           m->source_direction = tmp_dir;
+           m->saved_vc = 0;
+	   tw_event_send( e );
+	   return;
+         } 
+     }
+    else
+      {
+	 dst_lp = msg->next_stop;  
+         tmp_dim = msg->source_dim;
+         tmp_dir = msg->source_direction;
+      }
+    ts = tw_rand_exponential( lp->rng, ( double )link_delay/1000 )+
+                               link_delay;
+
+//    printf("\n Sending message to %d dir %d dim %d", (int)dst_lp, tmp_dir, tmp_dim);
+    e = tw_event_new( dst_lp, ts, lp );
+
+    //if(msg->packet_ID == TRACK)
+   //printf("\n (%lf) [LP %d] Packet %lld being sent to destination %lld source dim %d source dir %d Link delay %f ", 
+               //			  tw_now(lp), (int)lp->gid, msg->packet_ID,msg->dest_lp, s->source_dim, s->direction, link_delay);
+    m = tw_event_data( e );
+    m->type = ARRIVAL;
+ 
+    //Carry on the message info
+    m->source_dim = tmp_dim;
+    m->source_direction = tmp_dir;
+    m->packet_size = msg->packet_size;
+    m->saved_vc = vc;
+    m->next_stop = msg->next_stop;
+    m->origin_lp = msg->origin_lp;
+    m->sender_lp = lp->gid;
+   
+    for( i = 0; i < N_dims; i++ )
+       m->dest[ i ] = msg->dest[ i ];
+     
+    m->dest_lp = msg->dest_lp;
+    m->transmission_time = msg->transmission_time;
+  
+    m->packet_ID = msg->packet_ID;
+    m->travel_start_time = msg->travel_start_time;
+    m->count = msg->count;
+  
+    m->my_N_hop = msg->my_N_hop;
+    tw_event_send( e );
+
+}
+/*Once a credit arrives at the node, this method picks a waiting packet in the injection queue and schedules it */
+void schedule_waiting_msg( nodes_state * s, 
+			   tw_bf * bf, 
+			   nodes_message * msg, 
+			   tw_lp * lp )
+{
+  if( s->root == NULL )
+    return;
+
+  waiting_list * current = s->root;
+  waiting_list * head = s->root;
+  waiting_list * prev;
+
+  while( current != NULL )
+  {
+    if( current->dim == msg->source_dim && current->dir == msg->source_direction && current->vc == msg->saved_vc )
+     {
+     if(current->packet->wait_type == GENERATE )
+     {
+      //&& s->buffer[ current->dir + ( current->dim * 2 ) ][ 0 ] >= ( 2 * msg->packet_size )/TOKEN_SIZE )
+        packet_generate( s, bf, current->packet, lp );
+     }
+     else if( current->packet->wait_type == SEND )
+       {
+         packet_send( s, bf, current->packet, lp );
+      }
+      else
+	 printf("\n INVALID wait type %d ", msg->wait_type);
+ 
+      if( current == head )
+        s->root = head->next;
+       else
+        prev->next = current->next;
+ 
+     free( current );
+     break;
+     }
+   else
+   {
+    prev = current;
+    current = current->next;
+   }
+  }
+}
+/*Processes the packet after it arrives on the from the neighboring torus node */
+void packet_process( nodes_state * s, 
+		    tw_bf * bf, 
+		    nodes_message * msg, 
+		    tw_lp * lp )
+{
+  int i;
+  tw_event *e;
+  tw_stime ts;
+  nodes_message *m;
+
+  s->N_wait_to_be_processed--;
+  
+  if( lp->gid == msg->dest_lp )
+    {   
+        ts = 0.01;
+        e = tw_event_new(lp->gid + N_nodes, ts + OVERHEADS + MEAN_PROCESS, lp);
+	m = tw_event_data(e);
+        m->type = MPI_RECV;
+        m->travel_start_time = msg->travel_start_time;
+	m->origin_lp = msg->origin_lp;
+	m->my_N_hop = msg->my_N_hop;
+	m->packet_ID = msg->packet_ID;
+	m->count = msg->count;
+	tw_event_send(e);
+	 //printf("\n Last message arrived at %lf travel start time %lf ", tw_now( lp ), m->travel_start_time );
+	N_finished_packets++;
+	int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
+	N_finished_storage[index]++;
+	total_hops += msg->my_N_hop;
+    }
+  else
+    {
+      e = tw_event_new(lp->gid, ( msg->count + 1 ) * HOP_DELAY , lp);
+//      e = tw_event_new(lp->gid, HOP_DELAY * (msg->count + 1), lp);
+      m = tw_event_data( e );
+      m->type = SEND;
+      m->origin_lp = msg->origin_lp;
+      
+      // Carry on the message info
+      for( i = 0; i < N_dims; i++ )
+	m->dest[i] = msg->dest[i];
+
+      m->dest_lp = msg->dest_lp;
+      m->transmission_time = msg->transmission_time;
+      m->saved_vc = msg->saved_vc; 
+      
+      m->source_dim = msg->source_dim;
+      m->source_direction = msg->source_direction;
+      
+      m->packet_ID = msg->packet_ID;	  
+      m->travel_start_time = msg->travel_start_time;
+
+      m->my_N_hop = msg->my_N_hop;
+      m->count = msg->count;
+      m->sender_lp = msg->sender_lp;
+
+      m->next_stop = -1;
+      m->packet_size = msg->packet_size;
+
+      tw_event_send(e);
+   }
+}
 
 /*Each MPI LP in this model generates a MPI message until a certain message count is reached.
 This method 
@@ -599,6 +612,9 @@ void mpi_msg_send(mpi_process * p,
     nodes_message *m;
     tw_lpid final_dst;
     int i, pack_size = mpi_message_size;
+
+    if( mpi_message_size < 32 )
+       pack_size = 32;
 
     if(num_packets > 1)
        pack_size = PACKET_SIZE_LIMIT;
@@ -624,12 +640,19 @@ void mpi_msg_send(mpi_process * p,
 //  printf("\n MPI Rank %d sending message to rank %d ", getProcID(lp->gid), getProcID(final_dst));
 #endif
       tw_stime available_time = 0.0;
+      tw_stime base_time = MEAN_PROCESS;
+	
+//      this is the delay when a virtual channel fills up and the packets of a message are yet pending
+      //if( num_packets > 8 )
+	//  base_time = 1.0 * MEAN_PROCESS;
 
       for( i=0; i<num_packets; i++ ) {
 	      // Send the packet out
 	     ts = tw_rand_exponential( lp->rng, MEAN_INTERVAL );
 	     available_time = max( available_time, tw_now(lp) );
 	    
+	     available_time += base_time;
+
 	     e = tw_event_new( getProcID(lp->gid), available_time + ts - tw_now(lp), lp );
 	    
 	     m = tw_event_data( e );
@@ -641,8 +664,8 @@ void mpi_msg_send(mpi_process * p,
 	     m->dest_lp = getProcID( final_dst );
  	     m->next_stop = -1; 
 	     m->origin_lp = lp->gid;
-             
-	     available_time += MEAN_PROCESS;
+            //if( lp->gid == N_nodes)
+              //printf("\n Scheduling next message after %lf ", available_time + ts - tw_now(lp)); 
 	    //int dst_proc = tw_rand_integer(lp->rng, 0, N_nodes-1);
 	    //int dst_proc = s->neighbour_minus_lpID[0];
 	    //m->dest_lp = dst_proc;
@@ -663,6 +686,8 @@ void mpi_msg_recv(mpi_process * p,
 		  tw_lp * lp)
 {
  // Message arrives at final destination
+  if( msg->count == num_packets -1 )
+  {
     N_finished_msgs++;
     
     total_time += tw_now( lp ) - msg->travel_start_time;
@@ -675,11 +700,11 @@ void mpi_msg_recv(mpi_process * p,
 
    if(msg->origin_lp == N_nodes)
      {
-      //printf( "\n Origin lp total hops %d packet ID %lld ", msg->my_N_hop, msg->packet_ID );
+     // printf( "\n Origin lp time %lf packet ID %lld ", tw_now( lp ) - msg->travel_start_time, msg->packet_ID );
        total_lp_time += tw_now( lp ) - msg->travel_start_time;
        lp_hops = msg->my_N_hop;
      }
-
+  }
 }
 void mpi_event_handler( mpi_process * p, 
 		       tw_bf * bf, 
@@ -900,6 +925,11 @@ main(int argc, char **argv, char **env)
 	    total_generated_storage[i]+=total_generated_storage[i-1];
 	  }
 
+	if( total_lp_time > 0 )
+	 {
+	   total_lp_time /= num_mpi_msgs;
+           printf( "\n Total LP Time %lf ", total_lp_time );
+	 }
 
 	if(tw_ismaster())
 	  {
@@ -915,9 +945,6 @@ main(int argc, char **argv, char **env)
 	    printf("\n average travel time:  %lf; \n\n",
 		   total_time_sum/N_total_msgs_finish);
 	    
-	   total_lp_time /= num_mpi_msgs;
-
-	    printf( "\n Total lp time: %lf hops %d \n", total_lp_time, lp_hops );
 	    for( i=0; i<N_COLLECT_POINTS; i++ )
 	      {
 		printf(" %d ",i*100/N_COLLECT_POINTS);

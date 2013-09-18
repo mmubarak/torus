@@ -12,10 +12,10 @@
 #define MEAN_PROCESS 750.0
 #define MEAN_INTERVAL 1
 #define MPI_MESSAGE_LIMIT 50 /*Number of messages to be injected by each node */
-#define HOP_DELAY 175 /*Processing delay on each node */
+#define HOP_DELAY 5
 #define PACKET_SIZE_LIMIT 256 /* maximum size of packet in bytes */
-#define BANDWIDTH 0.374 /*Link bandwidth*/
-#define OVERHEADS 3000.0 /*MPI software overheads*/
+#define BANDWIDTH 0.425 /*Link bandwidth*/
+#define OVERHEADS 1900.0 /*MPI software overheads*/
 #define NUM_VC 2
 // Total available tokens on a VC = VC buffer size / token size
 #define NUM_BUF_SLOTS 1024/TOKEN_SIZE /*Each VC has a specific number of tokens and each token is of 32 bytes */
@@ -23,7 +23,7 @@
 #define PING_PONG 0 /*Set 1 for a ping pong test, 0 for a bisection test */
 
 // finite buffer
-#define N_dims 3
+#define N_dims 5
 #define TRACK 48
 #define N_COLLECT_POINTS 20
 
@@ -31,7 +31,7 @@
 #define DEBUG 1
 
 //static int       dim_length[] = {4,4,4,4,2};
-static int       dim_length[] = {8,8,8};
+static int       dim_length[] = {4, 4, 4, 8, 2};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
@@ -105,6 +105,7 @@ struct nodes_message
 
   tw_lpid dest_lp;
   tw_lpid origin_lp;
+  tw_lpid sender_lp;
 
   int my_N_queue;
   int my_N_hop;
