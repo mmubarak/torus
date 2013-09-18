@@ -2,7 +2,7 @@
 #define INC_torus_h
 
 #include <ross.h>
-
+#include <assert.h>
 // unit time is nano second
 // assume 475MB/s bandwidth, it takes 64 ns to transfer 32Byte
 // assume average packet size 32B, exponential dirstribution
@@ -13,7 +13,7 @@
 //ARCH is set to 1 for BG/P and 2 for BG/Q
 #define ARCH 2
 #define TOKEN_SIZE 32
-#define REPORT_BANDWIDTH 0
+#define REPORT_BANDWIDTH 1
 
 #if ARCH == 1
   #define MEAN_PROCESS 750.0
@@ -26,23 +26,25 @@
   #define PACKET_SIZE 256 /* maximum size of packet in bytes */
   static int       dim_length[] = {8,8,8};
 #else
-  #define MEAN_PROCESS 1.0
 /*somehow small message size on BG/Q takes more time than BG/P
 The only thing I can suspect its because of the PAMI or MPI overheads on 
 BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q accordingly*/
 //  #define OVERHEADS 4100.0 /*MPI software overheads*/
+  #define MEAN_PROCESS 1.0
   #define N_dims 5
 // Total available tokens on a VC = VC buffer size / token size
-  #define BANDWIDTH 2.0 /*Link bandwidth*/
+  #define BANDWIDTH 2.0 /*Link bandwidth on BG/Q, Slightly increased to counter noise*/
   #define PACKET_SIZE 512
-  #define VC_SIZE 8192 /*Each VC has a specific number of tokens and each token is of 32 bytes */
+  #define VC_SIZE 2048 /*Each VC has a specific number of tokens and each token is of 32 bytes */
   #define NUM_BUF_SLOTS VC_SIZE/TOKEN_SIZE
-  #define OVERHEAD 0.0
 //  static int       dim_length[] = {8,4,4,4,4,4,2};
     static int dim_length[] = {8,4,4,4,2};//1024 node case
-//     static int dim_length[] = {16, 8, 8, 8, 2};
-//     static int dim_length[] = {10, 10, 10, 8, 4, 4, 2};
-//     static int dim_length[] = {10, 10, 5, 4, 4, 4, 2, 2, 2};
+//      static int dim_length[] = {16, 8, 8, 8, 2};
+  //     static int dim_length[] = {10, 10, 10, 8, 4, 4, 2}; // 256K 7D
+//        static int dim_length[] = {20, 20, 16, 10, 4}; // 256K 5D
+//	static int dim_length[] = {10, 8, 8, 8, 4, 4, 4, 2, 2}; // 1.3 million 9D      
+//	static int dim_length[] = {16, 16, 16, 10, 4, 4, 2}; //1.3 million 7D
+//	static int dim_length[] = {32, 32, 32, 20, 2}; //1.3 million 5D
 #endif
 
 //#define MPI_MESSAGE_LIMIT 50 /*Number of messages to be injected by each node */
@@ -53,13 +55,13 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 // finite buffer
 //#define N_dims 3
 #define TRACK 79120076
-#define N_COLLECT_POINTS 20
+#define N_COLLECT_POINTS 200
 
 #define TRACK_LP 0
 #define DEBUG 1
 
 #define NUM_ZONE_NODES 32
-#define WAITING_PACK_COUNT 1 << 22
+#define WAITING_PACK_COUNT 1 << 15
 //static dim_length[] = {8,8,8};
 //static int       dim_length[] = {8, 8, 8};
 //static int       dim_length[] = {64,64,64,64};
@@ -79,7 +81,7 @@ typedef struct waiting_packet waiting_packet;
 // Total number of nodes in torus, calculate in main
 static int N_nodes = 1;
 static int N_mpi_procs = 1;
-
+//static int N_COLLECT_POINTS=200;
 enum nodes_event_t
 {
   GENERATE = 1,
@@ -119,6 +121,7 @@ struct nodes_state
 //  tw_stime next_available_time;                 
   tw_stime next_link_available_time[2*N_dims][NUM_VC]; 
   tw_stime next_credit_available_time[2*N_dims][NUM_VC];
+  tw_stime next_flit_generate_time[2*N_dims][NUM_VC];
   int buffer[2*N_dims][NUM_VC]; 
   int dim_position[N_dims];
   int neighbour_minus_lpID[N_dims];
@@ -182,6 +185,8 @@ static unsigned long long N_finished_msgs = 0;
 
 static unsigned long long       N_finished_storage[N_COLLECT_POINTS];
 static unsigned long long       N_generated_storage[N_COLLECT_POINTS];
+static unsigned long long 	N_queue_depth[N_COLLECT_POINTS];
+static unsigned long long	N_num_hops[N_COLLECT_POINTS];
 static unsigned long long       total_hops = 0;
 
 static int       half_length[N_dims];
@@ -194,10 +199,9 @@ static int	 opt_mem = 3000;
 static long mpi_message_size = 32;
 static int num_mpi_msgs = 50;
 //static int distance = 1;
-static int mem_factor = 128;
+static int mem_factor = 16;
 static double MEAN_INTERVAL=200.0;
-static int TRAFFIC = TRANSPOSE;
-//static float MEAN_INTERVAL=10.0;
+static int TRAFFIC = NEAREST_NEIGHBOR;
 //FILE *g_event_trace_file=NULL;
 //int g_enable_event_trace=1;
 int num_packets;
@@ -206,7 +210,9 @@ int num_chunks;
 //int num_buf_slots = 0;
 int num_zones = 0;
 int packet_offset = 0;
+
 int node_rem = 0;
+
 int num_rows, num_cols;
 int factor[N_dims];
 
