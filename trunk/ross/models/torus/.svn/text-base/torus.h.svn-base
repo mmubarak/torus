@@ -32,6 +32,7 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 //  #define OVERHEADS 4100.0 /*MPI software overheads*/
   #define MEAN_PROCESS 1.0
   #define N_dims 5
+  #define N_dims_sim 9
 // Total available tokens on a VC = VC buffer size / token size
   #define BANDWIDTH 2.0 /*Link bandwidth on BG/Q, Slightly increased to counter noise*/
   #define PACKET_SIZE 512
@@ -42,7 +43,7 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 //      static int dim_length[] = {16, 8, 8, 8, 2};
   //     static int dim_length[] = {10, 10, 10, 8, 4, 4, 2}; // 256K 7D
 //        static int dim_length[] = {20, 20, 16, 10, 4}; // 256K 5D
-//	static int dim_length[] = {10, 8, 8, 8, 4, 4, 4, 2, 2}; // 1.3 million 9D      
+	static int dim_length_sim[] = {10, 8, 8, 8, 4, 4, 4, 2, 2}; // 1.3 million 9D      
 //	static int dim_length[] = {16, 16, 16, 10, 4, 4, 2}; //1.3 million 7D
 //	static int dim_length[] = {32, 32, 32, 20, 2}; //1.3 million 5D
 #endif
@@ -62,6 +63,7 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 
 #define NUM_ZONE_NODES 32
 #define WAITING_PACK_COUNT 1 << 15
+
 //static dim_length[] = {8,8,8};
 //static int       dim_length[] = {8, 8, 8};
 //static int       dim_length[] = {64,64,64,64};
@@ -124,8 +126,17 @@ struct nodes_state
   tw_stime next_flit_generate_time[2*N_dims][NUM_VC];
   int buffer[2*N_dims][NUM_VC]; 
   int dim_position[N_dims];
+
+  int dim_position_sim[N_dims_sim];
+  
   int neighbour_minus_lpID[N_dims];
   int neighbour_plus_lpID[N_dims];
+  
+  // For simulation purposes: Making the same nearest neighbor traffic
+  // across all torus dimensions
+  int neighbour_minus_lpID_sim[N_dims_sim];
+  int neighbour_plus_lpID_sim[N_dims_sim];   
+
   int source_dim;
   int direction;
 
@@ -190,6 +201,7 @@ static unsigned long long	N_num_hops[N_COLLECT_POINTS];
 static unsigned long long       total_hops = 0;
 
 static int       half_length[N_dims];
+static int	 half_length_sim[N_dims_sim];
 static int	 nlp_nodes_per_pe;
 static int 	 nlp_mpi_procs_per_pe;
 static int total_lps;
@@ -215,6 +227,7 @@ int node_rem = 0;
 
 int num_rows, num_cols;
 int factor[N_dims];
+int factor_sim[N_dims_sim];
 
 float head_delay=0.0;
 float credit_delay = 0.0;

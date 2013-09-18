@@ -63,7 +63,10 @@ torus_init( nodes_state * s,
 {
     int i, j;
     int dim_N[ N_dims + 1 ];
+
+    int dim_N_sim[N_dims_sim + 1];
     dim_N[ 0 ]=( int )lp->gid;
+    dim_N_sim[0]=(int)lp->gid;
 
   // calculate my torus co-ordinates
   for ( i=0; i < N_dims; i++ ) 
@@ -74,7 +77,18 @@ torus_init( nodes_state * s,
       half_length[ i ] = dim_length[ i ] / 2;
     }
 
+  // calculate to be simulated torus dimension's
+  for ( i=0; i < N_dims_sim; i++ )
+    {
+      s->dim_position_sim[ i ] = dim_N_sim[ i ]%dim_length_sim[ i ];
+      dim_N_sim[ i + 1 ] = ( dim_N_sim[ i ] - s->dim_position_sim[ i ] )/dim_length_sim[ i ];
+
+      half_length_sim[ i ] = dim_length_sim[ i ] / 2;
+    }
+
   factor[ 0 ] = 1;
+  factor_sim[0] = 1;
+
   for ( i=1; i < N_dims; i++ )
     {
       factor[ i ] = 1;
@@ -82,9 +96,21 @@ torus_init( nodes_state * s,
         factor[ i ] *= dim_length[ j ];
     }
 
+  for ( i=1; i < N_dims_sim; i++ )
+    {
+      factor_sim[ i ] = 1;
+      for ( j = 0; j < i; j++ )
+        factor_sim[ i ] *= dim_length_sim[ j ];
+    }
+
   int temp_dim_pos[ N_dims ];
+  int temp_dim_pos_sim[ N_dims_sim ];
+
   for ( i = 0; i < N_dims; i++ )
     temp_dim_pos[ i ] = s->dim_position[ i ];
+
+  for ( i = 0; i < N_dims_sim; i++ )
+    temp_dim_pos_sim[ i ] = s->dim_position_sim[ i ];
 
 //if( lp->gid == TRACK_LP )
 // printf("\n LP %d assigned dimensions %d %d %d %d %d", (int)lp->gid, s->dim_position[ 0 ], s->dim_position[ 1 ], s->dim_position[ 2 ], s->dim_position[ 3 ], s->dim_position[ 4 ]);
@@ -97,15 +123,24 @@ torus_init( nodes_state * s,
       s->neighbour_minus_lpID[ j ] = 0;
       
       for ( i = 0; i < N_dims; i++ )
-	{
         s->neighbour_minus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
-	}
-     
 /*	if(lp->gid == 967)
 		printf("Neighbor %d ", s->neighbour_minus_lpID[ j ]);*/
       temp_dim_pos[ j ] = s->dim_position[ j ];
 
     }
+
+  for ( j = 0; j < N_dims_sim; j++ )
+   {
+	temp_dim_pos_sim[j] = (s->dim_position_sim[ j ] -1 + dim_length_sim[ j ]) % dim_length_sim[ j ];
+	
+	s->neighbour_minus_lpID_sim[ j ] = 0;
+
+	for ( i = 0; i < N_dims_sim; i++ )	
+	  s->neighbour_minus_lpID_sim[ j ] += factor_sim[ i ] * temp_dim_pos_sim[ i ];
+
+	temp_dim_pos_sim[ j ] = s->dim_position_sim[ j ];
+   }
   // calculate plus neighbour's lpID
   for ( j = 0; j < N_dims; j++ )
     {
@@ -119,6 +154,18 @@ torus_init( nodes_state * s,
 /*	if(lp->gid == 967)
 		printf("Neighbor %d ", s->neighbour_plus_lpID[ j ]);*/
       temp_dim_pos[ j ] = s->dim_position[ j ];
+    }
+
+  for ( j = 0; j < N_dims_sim; j++ )
+    {
+      temp_dim_pos_sim[ j ] = ( s->dim_position_sim[ j ] + 1 + dim_length_sim[ j ]) % dim_length_sim[ j ];
+
+      s->neighbour_plus_lpID_sim[ j ] = 0;
+
+      for ( i = 0; i < N_dims_sim; i++ )
+        s->neighbour_plus_lpID_sim[ j ] += factor_sim[ i ] * temp_dim_pos_sim[ i ];
+
+      temp_dim_pos_sim[ j ] = s->dim_position_sim[ j ];
     }
 
   for( j=0; j < 2 * N_dims; j++ )
@@ -148,8 +195,6 @@ torus_init( nodes_state * s,
  
     s->head = &s->waiting_list[0];
     s->wait_count = 0;
-//    s->next_available_time = 0;
-//    s->N_wait_to_be_processed = 0;
 
 }
 // initialize MPI process LP
@@ -247,10 +292,10 @@ packet_generate( nodes_state * s,
     if(TRAFFIC == NEAREST_NEIGHBOR)
      {
 	int dest_counter = msg->dest_lp;
-	if( dest_counter < N_dims)
-	   msg->dest_lp = s->neighbour_minus_lpID[dest_counter];
-	  else if(dest_counter >= N_dims && dest_counter < 2 * N_dims)
-	     msg->dest_lp = s->neighbour_plus_lpID[dest_counter-N_dims];
+	if( dest_counter < N_dims_sim)
+	   msg->dest_lp = s->neighbour_minus_lpID_sim[dest_counter];
+	  else if(dest_counter >= N_dims_sim && dest_counter < 2 * N_dims_sim)
+	     msg->dest_lp = s->neighbour_plus_lpID_sim[dest_counter-N_dims_sim];
      }
    
    if(TRAFFIC == DIAGNOL)
@@ -679,7 +724,7 @@ void mpi_msg_send(mpi_process * p,
 
        case NEAREST_NEIGHBOR:
          {
-           final_dst = p->message_counter% (2*N_dims);
+           final_dst = p->message_counter% (2*N_dims_sim);
         }
         break;
 

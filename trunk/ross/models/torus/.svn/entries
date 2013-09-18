@@ -1,14 +1,14 @@
 10
 
 dir
-684
+686
 https://subversion.cs.rpi.edu/svn/rossnet/trunk/ross/models/torus
 https://subversion.cs.rpi.edu/svn/rossnet
 
 
 
-2013-07-02T13:05:01.918420Z
-684
+2013-07-10T14:24:55.535207Z
+686
 mubarm@LAB.CS.RPI.EDU
 
 
@@ -134,10 +134,10 @@ file
 
 
 
-2013-09-18T19:52:18.000000Z
-c5ee7605f1a150abf48036da2d2284a2
-2013-07-02T13:05:01.918420Z
-684
+2013-09-18T19:52:20.000000Z
+b985447aeb9839d7892305cf839fc6ed
+2013-07-10T14:24:55.535207Z
+686
 mubarm@LAB.CS.RPI.EDU
 
 
@@ -160,7 +160,7 @@ mubarm@LAB.CS.RPI.EDU
 
 
 
-6393
+6726
 
 torus.new
 file
@@ -440,10 +440,10 @@ file
 
 
 
-2013-09-18T19:52:18.000000Z
-b5634f3f0a1f16e0e17857eed87509a5
-2013-07-02T13:05:01.918420Z
-684
+2013-09-18T19:52:20.000000Z
+3d3911b8b24f7e538760c910f3f8f515
+2013-07-10T14:24:55.535207Z
+686
 mubarm@LAB.CS.RPI.EDU
 
 
@@ -466,7 +466,7 @@ mubarm@LAB.CS.RPI.EDU
 
 
 
-34459
+35835
 
 torus.h.bak
 file
