@@ -69,6 +69,14 @@ torus_setup(nodes_state * s, tw_lp * lp)
   int i, j;
   int dim_N[N_dims+1];
   dim_N[0]=(int)lp->gid;
+  char tracefilename[80];
+
+  // open event tracefile
+  if( g_enable_event_trace && g_event_trace_file == NULL )
+    {
+      sprintf(tracefilename, "event-trace-%d", g_tw_mynode );
+      g_event_trace_file = fopen( tracefilename, "w");
+    }
 
   // calculate my torus co-ordinates
   for (i=0; i<N_dims; i++)
@@ -99,25 +107,34 @@ torus_setup(nodes_state * s, tw_lp * lp)
     temp_dim_pos[i] = s->dim_position[i];
 
   // calculate minus neighbour's lpID
+  printf("LP %ld -Dir: ", lp->gid);
   for (j=0; j<N_dims; j++)
     {
       temp_dim_pos[j] = (s->dim_position[j] -1 + dim_length[j])%dim_length[j];
       s->neighbour_minus_lpID[j]=0;
       for (i=0; i<N_dims; i++)
-        s->neighbour_minus_lpID[j]+=factor[i]*temp_dim_pos[i];
+	{
+	  s->neighbour_minus_lpID[j]+=factor[i]*temp_dim_pos[i];
+	}
+      printf("%ld ", s->neighbour_minus_lpID[j]);
       temp_dim_pos[j] = s->dim_position[j];
     }
+  printf("\n");
 
   // calculate plus neighbour's lpID
+  printf("LP %ld +Dir: ", lp->gid);
   for (j=0; j<N_dims; j++)
     {
       temp_dim_pos[j] = (s->dim_position[j] + 1 + dim_length[j])%dim_length[j];
       s->neighbour_plus_lpID[j]=0;
       for (i=0; i<N_dims; i++)
-        s->neighbour_plus_lpID[j]+=factor[i]*temp_dim_pos[i];
+	{
+	  s->neighbour_plus_lpID[j]+=factor[i]*temp_dim_pos[i];
+	}
+      printf("%ld ", s->neighbour_plus_lpID[j]);
       temp_dim_pos[j] = s->dim_position[j];
     }
-
+  printf("\n");
   // record LP time
   s->packet_counter = 0;
   s->next_available_time = 0;
@@ -171,11 +188,12 @@ void torus_packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_
   if( dst_lp == lp->gid )
     dst_lp = (dst_lp + 1) % N_nodes;
 
-  if( torus_mapping(dst_lp) != torus_mapping(lp->gid) )
+  if( g_enable_event_trace && 
+      torus_mapping(dst_lp) != torus_mapping(lp->gid) )
     {
-    printf("GENERATE REMOTE PACKET: src lp(%ld) to dest lp(%ld) at %lf \n", 
-	   dst_lp, lp->gid, tw_now(lp) );
-    fflush(stdout);
+      fprintf( g_event_trace_file, "GENERATE REMOTE PACKET: src lp(%ld) to dest lp(%ld) at %lf \n", 
+	       lp->gid, dst_lp, tw_now(lp) );
+    fflush(g_event_trace_file);
     }
 
   // convert lp dest to torus coordinates and mod lp state vars
@@ -396,23 +414,29 @@ void torus_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp
   nodes_state saved_s;
   tw_rng_stream saved_rng;
 
-  if( torus_mapping(msg->dest_lp) != torus_mapping(msg->src_lp) )
+  if( g_enable_event_trace )
     {
-      printf("Remote Event: SrcLP %ld to Dest LP %ld at %lf for MsgType %d \n",
-	     msg->src_lp, msg->dest_lp, tw_now(lp), msg->type );
-      fflush(stdout);
-    }
+      fprintf( g_event_trace_file,
+	       "EVENT: LP %ld, Msg Type %d, Time %lf \n", 
+	       lp->gid, msg->type, tw_now(lp) );
+      if( torus_mapping(msg->dest_lp) != torus_mapping(msg->src_lp) )
+	{
+	  fprintf(g_event_trace_file, "Remote Event: SrcLP %ld to Dest LP %ld at %lf for MsgType %d \n",
+		  msg->src_lp, msg->dest_lp, tw_now(lp), msg->type );
+	  fflush( g_event_trace_file );
+	}
 
-  if( g_tw_last_event_ts == tw_now(lp) )
-    {
-      printf("TIE EVENT: LAST: %ld, %d, %lf .....CURRENT: %ld, %d, %lf\n",
-	     g_tw_last_event_lpid,
-	     g_tw_last_event_type,
-	     g_tw_last_event_ts,
-	     lp->gid,
-	     msg->type,
-	     tw_now(lp) );
-      fflush(stdout);
+      if( g_tw_last_event_ts == tw_now(lp) )
+	{
+	  fprintf( g_event_trace_file, "TIE EVENT: LAST: %ld, %d, %lf .....CURRENT: %ld, %d, %lf\n",
+		   g_tw_last_event_lpid,
+		   g_tw_last_event_type,
+		   g_tw_last_event_ts,
+		   lp->gid,
+		   msg->type,
+		   tw_now(lp) );
+	  fflush(g_event_trace_file);
+	}
     }
 
   g_tw_last_event_lpid = lp->gid;
@@ -567,6 +591,13 @@ void torus_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp
 void
 torus_rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
+  if( g_enable_event_trace )
+    {
+      fprintf( g_event_trace_file,
+	       "REVERSE EVENT: LP %ld, Msg Type %d, Time %lf \n", 
+	       lp->gid, msg->type, tw_now(lp) );
+    }
+
   int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
   switch(msg->type)
     {
@@ -662,6 +693,11 @@ int main(int argc, char **argv, char **env)
 	  tw_lp_settype(i, &nodes_lps[0]);
 
 	tw_run();
+
+	if( g_enable_event_trace )
+	  {
+	    fclose( g_event_trace_file );
+	  }
 
 	if(tw_ismaster())
 	{

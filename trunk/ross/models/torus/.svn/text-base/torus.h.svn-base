@@ -25,8 +25,8 @@ static double ARRIVAL_RATE = 0.0000001;
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
-static int       dim_length[] = {4,4,4,4};
-#define N_dims 4
+static int       dim_length[] = {4,4,4};
+#define N_dims 3
 
 typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_state nodes_state;
@@ -115,5 +115,6 @@ static int	 opt_mem = 3000;
 tw_stime g_tw_last_event_ts = -1.0;
 tw_lpid  g_tw_last_event_lpid = 0;
 enum nodes_event_t g_tw_last_event_type=0;
-
+FILE *g_event_trace_file=NULL;
+int g_enable_event_trace=1;
 #endif
