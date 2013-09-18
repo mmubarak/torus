@@ -1,5 +1,8 @@
 #include "torus.h"
 
+void rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp);
+
+
 tw_peid
 mapping(tw_lpid gid)
 {
@@ -146,8 +149,8 @@ packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   msg->saved_available_time = s->next_available_time;
   s->next_available_time = max(s->next_available_time, tw_now(lp));
   
-  // consider 1% noise on packet header parsing
-  ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS;
+  // consider low noise on packet parsing
+  ts = MEAN_PROCESS + tw_rand_unif(lp->rng);
   s->node_queue_length[msg->source_direction][msg->source_dim]++;
   
   e = tw_event_new(lp->gid, s->next_available_time - tw_now(lp), lp);
@@ -224,7 +227,7 @@ packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   tw_event *e=NULL;
   nodes_message *m=NULL;
 
-  ts = LINK_DELAY+PACKET_SIZE;//msg->transmission_time;
+  // ts = LINK_DELAY+PACKET_SIZE;//msg->transmission_time;
   
   /*
    * Routing in the torus, start from the first dimension
@@ -244,14 +247,6 @@ packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       printf("LP %ld Attempt to send packet to self at TS = %lf \n", lp->gid, tw_now(lp) );
     }
   
-  //////////////////////////////////////////
-  /*
-  e = tw_event_new(dst_lp, ts, lp);
-  m = tw_event_data(e);
-  m->type = ARRIVAL;
-  */
-  ////////////////////////////////////////////////////////////////////
-
   msg->saved_source_dim = s->source_dim;
   msg->saved_direction = s->direction;
   msg->saved_link_available_time[s->direction][s->source_dim] = 
@@ -261,8 +256,7 @@ packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
     max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp));
   // consider 1% noise on packet header parsing
   //ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS;
-  ts = tw_rand_exponential(lp->rng, (double)LINK_DELAY/1000)+
-    LINK_DELAY+PACKET_SIZE;
+  ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(lp->rng);
   
   //s->queue_length_sum += 
   //s->node_queue_length[msg->source_direction][msg->source_dim];
@@ -359,47 +353,68 @@ packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 void 
 packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
-  //unsigned long long i;
-  int i;
-  tw_lpid dst_lp;
-  tw_stime ts;
-  tw_event *e;
-  nodes_message m;
-  nodes_message *next_gen_m;
+  int i=0;
+  tw_lpid dst_lp=0;
+  tw_stime ts=0.0;
+  tw_event *e=NULL;
+  nodes_message *m=NULL;
+  nodes_message *next_gen_m=NULL;
+  int dim_N[N_dims];
 
-  m.type = SEND;
-  m.transmission_time = PACKET_SIZE;
-  
-  // Set up random destination
-  // don't gen messages to self.
-  // if self, send to self lp + 1
+  // state save values in message
+  msg->saved_source_dim = s->source_dim;
+  msg->saved_direction = s->direction;
+
+  // compute lp dest
   dst_lp = tw_rand_integer(lp->rng,0,N_nodes-1);
   if( dst_lp == lp->gid )
     dst_lp = (dst_lp + 1) % N_nodes;
 
-  //rand_total += dst_lp;
-  int dim_N[N_dims];
+  // convert lp dest to torus coordinates and mod lp state vars
+  if (lp->gid !=  dst_lp )  
+      dimension_order_routing(s,msg,&dst_lp);
+  else
+      tw_error( TW_LOC, "LP %ld Attempt to send packet to self at TS = %lf \n", 
+		lp->gid, tw_now(lp) );
+  
+  msg->saved_link_available_time[s->direction][s->source_dim] = 
+    s->next_link_available_time[s->direction][s->source_dim];
+
+  s->next_link_available_time[s->direction][s->source_dim] = 
+    max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp));
+
+  ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(lp->rng);
+  s->next_link_available_time[s->direction][s->source_dim] += ts;      
+
+  e = tw_event_new( dst_lp, 
+		    s->next_link_available_time[s->direction][s->source_dim] 
+		    - tw_now(lp), 
+		    lp);
+
+  m = tw_event_data(e);
+  m->type = ARRIVAL;
+  m->transmission_time = PACKET_SIZE;
   dim_N[0]=dst_lp;
     
   for (i=0; i<N_dims; i++)
     {
-      m.dest[i] = dim_N[i]%dim_length[i];
-      dim_N[i+1] = ( dim_N[i] - m.dest[i] )/dim_length[i];
+      m->dest[i] = dim_N[i]%dim_length[i];
+      dim_N[i+1] = ( dim_N[i] - m->dest[i] )/dim_length[i];
     }
 
   // record start time
-  m.travel_start_time = tw_now(lp);
-  m.my_N_queue = 0;
-  m.my_N_hop = 0;
-  m.queueing_times = 0;
+  m->travel_start_time = tw_now(lp);
+  m->my_N_queue = 0;
+  m->my_N_hop = 0;
+  m->queueing_times = 0;
   
   // set up packet ID
   // each packet has a unique ID
-  m.packet_ID = lp->gid + g_tw_nlp*s->packet_counter;
-  
-  m.dest_lp = dst_lp;
-  // tw_event_send(e);	    
-  packet_send( s, bf, &m, lp );
+  m->packet_ID = lp->gid + g_tw_nlp*s->packet_counter;
+  m->dest_lp = dst_lp;
+  m->source_dim = s->source_dim;
+  m->source_direction = s->direction;
+  tw_event_send(e);
 
   // One more packet is generating 
   s->packet_counter++;
@@ -412,7 +427,6 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   e = tw_event_new(lp->gid, ts, lp);
   next_gen_m = tw_event_data(e);
   next_gen_m->type = GENERATE;
-  
   next_gen_m->dest_lp = lp->gid;
   tw_event_send(e);
 }
@@ -421,6 +435,15 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 void
 event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
+  int i;
+  nodes_state saved_s;
+  tw_rng_stream saved_rng;
+
+  if( g_test_rc )
+    {
+      memcpy( &saved_s, s, sizeof(nodes_state));
+      memcpy( &saved_rng, lp->rng, sizeof(tw_rng_stream));
+    }
 
   switch(msg->type)
     {
@@ -437,6 +460,131 @@ event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       packet_process(s,bf,msg,lp);
       break;
     }
+
+  if( g_test_rc )
+    {
+      rc_event_handler( s, bf, msg, lp );
+
+      if( s->packet_counter != saved_s.packet_counter )
+	{
+	  printf("LP %ld, Msg %d: Packet counter not restored: ARB %lld, SAVED %lld \n",
+		 lp->gid, msg->type, s->packet_counter, saved_s.packet_counter );
+	}
+
+      if( s->next_available_time != saved_s.next_available_time )
+	{
+	  printf("LP %ld, Msg %d: Next Avail Time not restored: ARB %lf, SAVED %lf \n",
+		 lp->gid, msg->type, 
+		 s->next_available_time, 
+		 saved_s.next_available_time );
+	}
+
+      for( i = 0; i < N_dims; i++ )
+	{
+	  if( s->next_link_available_time[0][i] != 
+	      saved_s.next_link_available_time[0][i] )
+	    {
+	      printf("LP %ld, Msg %d: NLAT[0][%d] not restored: ARB %lf, SAVED %lf \n",
+		     lp->gid, msg->type, i,
+		 s->next_link_available_time[0][i], 
+		 saved_s.next_link_available_time[0][i] );
+	    }
+	  if( s->next_link_available_time[1][i] != 
+	      saved_s.next_link_available_time[1][i] )
+	    {
+	      printf("LP %ld, Msg %d: NLAT[1][%d] not restored: ARB %lf, SAVED %lf \n",
+		     lp->gid, msg->type, i,
+		 s->next_link_available_time[1][i], 
+		 saved_s.next_link_available_time[1][i] );
+	    }
+	  if( s->dim_position[i] != 
+	      saved_s.dim_position[i] )
+	    {
+	      printf("LP %ld, Msg %d: dim_position[%d] not restored: ARB %d, SAVED %d \n",
+		     lp->gid, msg->type, i,
+		     s->dim_position[i], 
+		     saved_s.dim_position[i] );
+	    }
+	  if( s->neighbour_minus_lpID[i] != 
+	      saved_s.neighbour_minus_lpID[i] )
+	    {
+	      printf("LP %ld, Msg %d: NMLPID[%d] not restored: ARB %d, SAVED %d \n",
+		     lp->gid, msg->type, i,
+		     s->neighbour_minus_lpID[i], 
+		     saved_s.neighbour_minus_lpID[i] );
+	    }
+	  if( s->neighbour_plus_lpID[i] != 
+	      saved_s.neighbour_plus_lpID[i] )
+	    {
+	      printf("LP %ld, Msg %d: NPLPID[%d] not restored: ARB %d, SAVED %d \n",
+		     lp->gid, msg->type, i,
+		     s->neighbour_plus_lpID[i], 
+		     saved_s.neighbour_plus_lpID[i] );
+	    }
+
+	  if( s->node_queue_length[0][i] != 
+	      saved_s.node_queue_length[0][i] )
+	    {
+	      printf("LP %ld, Msg %d: NQL[0][%d] not restored: ARB %d, SAVED %d \n",
+		     lp->gid, msg->type, i,
+		     s->node_queue_length[0][i], 
+		     saved_s.node_queue_length[0][i] );
+	    }
+	  if( s->node_queue_length[1][i] != 
+	      saved_s.node_queue_length[1][i] )
+	    {
+	      printf("LP %ld, Msg %d: NQL[1][%d] not restored: ARB %d, SAVED %d \n",
+		     lp->gid, msg->type, i,
+		     s->node_queue_length[1][i], 
+		     saved_s.node_queue_length[1][i] );
+	    }
+
+	}
+
+      if( s->N_wait_to_be_processed != 
+	  saved_s.N_wait_to_be_processed )
+	{
+	  printf("LP %ld, Msg %d: NWTBP not restored: ARB %d, SAVED %d \n",
+		 lp->gid, msg->type,
+		 s->N_wait_to_be_processed,
+		 saved_s.N_wait_to_be_processed );
+	}
+
+      if( s->source_dim !=
+	  saved_s.source_dim )
+	{
+	  printf("LP %ld, Msg %d: TS %lf: source_dim not restored: ARB %d, SAVED %d \n",
+		 lp->gid, msg->type, tw_now(lp),
+		 s->source_dim,
+		 saved_s.source_dim );
+	}
+
+      if( s->direction !=
+	  saved_s.direction )
+	{
+	  printf("LP %ld, Msg %d: TS %lf: direction not restored: ARB %d, SAVED %d \n",
+		 lp->gid, msg->type, tw_now(lp),
+		 s->direction,
+		 saved_s.direction );
+	}
+
+
+      if( s->generate_counter !=
+	  saved_s.generate_counter )
+	{
+	  printf("LP %ld, Msg %d: generate_counter not restored: ARB %d, SAVED %d \n",
+		 lp->gid, msg->type,
+		 s->generate_counter,
+		 saved_s.generate_counter );
+	}
+
+      for( i = 0; i < 4; i++ )
+	if( saved_rng.Ig[i] != lp->rng->Ig[i] ||
+	    saved_rng.Lg[i] != lp->rng->Lg[i] ||
+	    saved_rng.Cg[i] != lp->rng->Cg[i] )
+	  printf("LP %ld, Msg %d: RNGs not properly reversed: Diff on index %d \n", lp->gid, msg->type, i);
+    }
+
 }
 
 void
@@ -452,10 +600,10 @@ rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       tw_rand_reverse_unif(lp->rng);
       // GEN calls the SEND
     case SEND:      
-      s->source_dim = msg->saved_source_dim;
-      s->direction = msg->saved_direction;
       s->next_link_available_time[s->direction][s->source_dim]=      
 	msg->saved_link_available_time[s->direction][s->source_dim];
+      s->source_dim = msg->saved_source_dim;
+      s->direction = msg->saved_direction;
       tw_rand_reverse_unif(lp->rng);
       break;
     case ARRIVAL:
@@ -524,7 +672,6 @@ main(int argc, char **argv, char **env)
 	//MEAN_INTERVAL = N_nodes/ARRIVAL_RATE;
 	// MEAN_INTERVAL = 1000/ARRIVAL_RATE;
 	MEAN_INTERVAL = 10000.0;
-
 
 	nlp_per_pe = N_nodes/tw_nnodes()/g_tw_npe;
 	g_tw_events_per_pe = nlp_per_pe/g_tw_npe + opt_mem;
