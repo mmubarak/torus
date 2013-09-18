@@ -52,26 +52,32 @@ torus_init( nodes_state * s,
   for ( i = 0; i < N_dims; i++ )
     temp_dim_pos[ i ] = s->dim_position[ i ];
 
+//if( lp->gid == TRACK_LP )
 // printf("\n LP %d assigned dimensions %d %d %d %d %d", (int)lp->gid, s->dim_position[ 0 ], s->dim_position[ 1 ], s->dim_position[ 2 ], s->dim_position[ 3 ], s->dim_position[ 4 ]);
+
   // calculate minus neighbour's lpID
   for ( j = 0; j < N_dims; j++ )
     {
       temp_dim_pos[ j ] = (s->dim_position[ j ] -1 + dim_length[ j ]) % dim_length[ j ];
+
       s->neighbour_minus_lpID[ j ] = 0;
       
       for ( i = 0; i < N_dims; i++ )
         s->neighbour_minus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
-      
+     
       temp_dim_pos[ j ] = s->dim_position[ j ];
 
     }
-//for ( j = 0; j < N_dims; j++ )
-//  printf( " Neighbor %d LP ID %d ", j, s->neighbour_minus_lpID[ j ] );
-
+if( lp->gid == TRACK_LP )
+{
+  for ( j = 0; j < N_dims; j++ )
+    printf( " Neighbor %d LP ID %d ", j, s->neighbour_minus_lpID[ j ] );
+}
   // calculate plus neighbour's lpID
   for ( j = 0; j < N_dims; j++ )
     {
       temp_dim_pos[ j ] = ( s->dim_position[ j ] + 1 + dim_length[ j ]) % dim_length[ j ];
+
       s->neighbour_plus_lpID[ j ] = 0;
       
       for ( i = 0; i < N_dims; i++ )
@@ -80,12 +86,15 @@ torus_init( nodes_state * s,
       temp_dim_pos[ j ] = s->dim_position[ j ];
     }
 
-//for ( j = 0; j < N_dims; j++ )
-//  printf( " Neighbor %d LP ID %d ", j, s->neighbour_plus_lpID[ j ]);
+if( lp->gid == TRACK_LP )
+{
+  for ( j = 0; j < N_dims; j++ )
+    printf( " Neighbor %d LP ID %d ", j, s->neighbour_plus_lpID[ j ]);
+}
 
-  for(j=0; j<2*N_dims; j++)
+  for( j=0; j < 2 * N_dims; j++ )
    {
-    for(i=0; i<NUM_VC; i++)
+    for( i = 0; i < NUM_VC; i++ )
       s->buffer[ j ][ i ] = NUM_BUF_SLOTS;
    }
   // initialize each node's waiting linked list
@@ -119,7 +128,8 @@ mpi_init( mpi_process * s,
 }
 
 /*Returns the next neighbor to which the packet should be routed by using DOR (Taken from Ning's code of the torus model)*/
-void dimension_order_routing( nodes_state * s,
+void 
+dimension_order_routing( nodes_state * s,
 			     tw_lpid * dst_lp, 
 			     int * dim, 
 			     int * dir )
@@ -298,7 +308,6 @@ packet_arrive( nodes_state * s,
 	      nodes_message * msg, 
               tw_lp * lp )
 {
-
   int i;
   tw_stime ts;
   tw_event *e1;
@@ -358,7 +367,8 @@ packet_arrive( nodes_state * s,
 }
 
 /*Inserts a packet in the injection queue which then waits to be sent over the network */
-void update_waiting_list( nodes_state * s, 
+void 
+update_waiting_list( nodes_state * s, 
 		        nodes_message * msg, 
 			tw_lp * lp )
 {
@@ -394,7 +404,8 @@ void update_waiting_list( nodes_state * s,
 }
 // send a packet from one torus node to another torus node
 // A packet can be up to 256 bytes on BG/L and BG/P and up to 512 bytes on BG/Q
-void packet_send( nodes_state * s, 
+void 
+packet_send( nodes_state * s, 
 	         tw_bf * bf, 
 		 nodes_message * msg, 
 		 tw_lp * lp )
@@ -460,6 +471,9 @@ void packet_send( nodes_state * s,
 //    printf("\n Sending message to %d dir %d dim %d", (int)dst_lp, tmp_dir, tmp_dim);
     e = tw_event_new( dst_lp, ts, lp );
 
+if( msg->packet_ID == TRACK )
+   printf("\n Scheduling for next hop after %f ", link_delay);
+
     //if(msg->packet_ID == TRACK)
    //printf("\n (%lf) [LP %d] Packet %lld being sent to destination %lld source dim %d source dir %d Link delay %f ", 
                //			  tw_now(lp), (int)lp->gid, msg->packet_ID,msg->dest_lp, s->source_dim, s->direction, link_delay);
@@ -490,7 +504,8 @@ void packet_send( nodes_state * s,
 
 }
 /*Once a credit arrives at the node, this method picks a waiting packet in the injection queue and schedules it */
-void schedule_waiting_msg( nodes_state * s, 
+void 
+schedule_waiting_msg( nodes_state * s, 
 			   tw_bf * bf, 
 			   nodes_message * msg, 
 			   tw_lp * lp )
@@ -539,7 +554,7 @@ void packet_process( nodes_state * s,
 		    nodes_message * msg, 
 		    tw_lp * lp )
 {
-  int i;
+  int i, delay = HOP_DELAY;
   tw_event *e;
   tw_stime ts;
   nodes_message *m;
@@ -566,7 +581,11 @@ void packet_process( nodes_state * s,
     }
   else
     {
-      e = tw_event_new(lp->gid, ( msg->count + 1 ) * HOP_DELAY , lp);
+//      Additional hop delay for large messages
+      if( mpi_message_size > 1024 )
+	delay += (HOP_DELAY/12 * num_packets);
+
+      e = tw_event_new(lp->gid, ( msg->my_N_hop + msg->count ) * delay , lp);
 //      e = tw_event_new(lp->gid, HOP_DELAY * (msg->count + 1), lp);
       m = tw_event_data( e );
       m->type = SEND;
@@ -642,11 +661,7 @@ void mpi_msg_send(mpi_process * p,
       tw_stime available_time = 0.0;
       tw_stime base_time = MEAN_PROCESS;
 	
-//      this is the delay when a virtual channel fills up and the packets of a message are yet pending
-      //if( num_packets > 8 )
-	//  base_time = 1.0 * MEAN_PROCESS;
-
-      for( i=0; i<num_packets; i++ ) {
+      for( i=0; i < num_packets; i++ ) {
 	      // Send the packet out
 	     ts = tw_rand_exponential( lp->rng, MEAN_INTERVAL );
 	     available_time = max( available_time, tw_now(lp) );
@@ -693,7 +708,6 @@ void mpi_msg_recv(mpi_process * p,
     total_time += tw_now( lp ) - msg->travel_start_time;
 
 
-//    printf("\n Max latency %f packet ID %d", tw_now( lp ) - msg->travel_start_time, msg->packet_ID);
     if (max_latency < tw_now( lp ) - msg->travel_start_time) {
           max_latency=tw_now( lp ) - msg->travel_start_time;
      }
@@ -877,9 +891,9 @@ main(int argc, char **argv, char **env)
 	tw_define_lps(nlp_nodes_per_pe + nlp_mpi_procs_per_pe, sizeof(nodes_message), 0);
 
 	if( mpi_message_size < PACKET_SIZE_LIMIT )
- 	  link_delay = 1/BANDWIDTH * mpi_message_size;
+ 	  link_delay = (1 / BANDWIDTH) * mpi_message_size;
         else
-	  link_delay = 1/BANDWIDTH * PACKET_SIZE_LIMIT;
+	  link_delay = (1 / BANDWIDTH) * PACKET_SIZE_LIMIT;
 
         // BG/L torus network paper: Tokens are 32 byte chunks that is why the credit delay is adjusted according to bandwidth * 32
 	credit_delay = 1/BANDWIDTH * 8;
@@ -889,7 +903,6 @@ main(int argc, char **argv, char **env)
 	if(tw_ismaster())
 	{
 		printf("\nTorus Network Model Statistics:\n");
-
 		printf("\t%-50s %11d\n", "Number of nodes", N_nodes);
 	}
 

@@ -9,29 +9,51 @@
 // assume average processing time 1 us = 1000 ns, exponential dirstribution 
 //#define PACKET_SIZE 256
 // processing time of message at the MPI level-- from DCMF paper
-#define MEAN_PROCESS 750.0
+
+//ARCH is set to 1 for BG/P and 2 for BG/Q
+#define ARCH 1
+
+#if ARCH == 1
+  #define MEAN_PROCESS 750.0
+  #define HOP_DELAY 22
+  #define OVERHEADS 2000.0 /*MPI software overheads*/
+// Total available tokens on a VC = VC buffer size / token size
+  #define NUM_BUF_SLOTS 1024/TOKEN_SIZE /*Each VC has a specific number of tokens and each token is of 32 bytes */
+  #define BANDWIDTH 0.425 /*Link bandwidth*/
+  #define N_dims 3
+  #define PACKET_SIZE_LIMIT 256 /* maximum size of packet in bytes */
+  static int       dim_length[] = {8,8,8};
+#else
+  #define MEAN_PROCESS 500.0
+  #define HOP_DELAY 8 
+/*somehow small message size on BG/Q takes more time than BG/P
+The only thing I can suspect its because of the PAMI or MPI overheads on 
+BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q accordingly*/
+  #define OVERHEADS 4100.0 /*MPI software overheads*/
+  #define N_dims 5
+// Total available tokens on a VC = VC buffer size / token size
+  #define NUM_BUF_SLOTS 2048/TOKEN_SIZE /*Each VC has a specific number of tokens and each token is of 32 bytes */
+  #define BANDWIDTH 2.0 /*Link bandwidth*/
+  #define PACKET_SIZE_LIMIT 512
+  static int       dim_length[] = {4,4,4,8,2};
+#endif
+
 #define MEAN_INTERVAL 1
 #define MPI_MESSAGE_LIMIT 50 /*Number of messages to be injected by each node */
-#define HOP_DELAY 5
-#define PACKET_SIZE_LIMIT 256 /* maximum size of packet in bytes */
-#define BANDWIDTH 0.425 /*Link bandwidth*/
-#define OVERHEADS 1900.0 /*MPI software overheads*/
 #define NUM_VC 2
-// Total available tokens on a VC = VC buffer size / token size
-#define NUM_BUF_SLOTS 1024/TOKEN_SIZE /*Each VC has a specific number of tokens and each token is of 32 bytes */
 #define TOKEN_SIZE 32
 #define PING_PONG 0 /*Set 1 for a ping pong test, 0 for a bisection test */
 
 // finite buffer
-#define N_dims 5
-#define TRACK 48
+//#define N_dims 3
+#define TRACK 49
 #define N_COLLECT_POINTS 20
 
 #define TRACK_LP 0
 #define DEBUG 1
 
-//static int       dim_length[] = {4,4,4,4,2};
-static int       dim_length[] = {4, 4, 4, 8, 2};
+//static dim_length[] = {8,8,8};
+//static int       dim_length[] = {8, 8, 8};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
@@ -80,7 +102,6 @@ struct nodes_state
   int N_wait_to_be_processed;
   int source_dim;
   int direction;
-  int generate_counter;
   //first element of linked list
   struct waiting_list * root;
 
@@ -155,9 +176,6 @@ static long mpi_message_size = 256;
 static int num_mpi_msgs = 50;
 static int distance = 1;
 
-tw_stime g_tw_last_event_ts = -1.0;
-tw_lpid  g_tw_last_event_lpid = 0;
-enum nodes_event_t g_tw_last_event_type=0;
 FILE *g_event_trace_file=NULL;
 int g_enable_event_trace=1;
 int num_buf_slots;
