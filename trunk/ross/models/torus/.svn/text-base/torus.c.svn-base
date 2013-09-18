@@ -352,8 +352,7 @@ void packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp
     }
 }
 
-void 
-packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+void packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
   int i;
   tw_lpid dst_lp;

@@ -4,26 +4,30 @@
 #include <ross.h>
 
 // unit time can be nano second
-// assume 175MB/s bandwidth, it takes 5.7 ns to transfer 1Byte
-// assume average packet size 1kB, exponential dirstribution
+// assume 475MB/s bandwidth, it takes 64 ns to transfer 32Byte
+// assume average packet size 32B, exponential dirstribution
 // assume average processing time 1 us = 1000 ns, exponential dirstribution 
-#define PACKET_SIZE 1
+#define PACKET_SIZE 32
 #define MEAN_PROCESS 2.0
-#define LINK_DELAY 2.0
-#define NUM_VC 2
-#define NUM_BUF_SLOTS 256
-#define N_PACKETS_PER_NODE 8
+#define LINK_DELAY 64.0
+#define NUM_VC 4
+#define NUM_BUF_SLOTS 64
 
-static double MEAN_INTERVAL;
 // finite buffer
 #define BUFFER_SIZE 2
-#define N_dims 5
+#define N_dims 3
 
+// Debug
+#define TRACK 340038
+#define N_COLLECT_POINTS 20
+#define QUEUE_SIZE 100
+
+static double MEAN_INTERVAL;
 static int buffer_size = 16;
 static int N_packet_target = 100;
 
-static int       dim_length[] = {4,4,4,4,2};
-//static int       dim_length[] = {32,32};
+//static int       dim_length[] = {4,4,4,4,2};
+static int       dim_length[] = {8,8,8};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
@@ -38,10 +42,6 @@ typedef struct waiting_list waiting_list;
 // build your own torus
 // static int       N_dims = 4;
 
-// Debug
-#define TRACK 340038
-#define N_COLLECT_POINTS 20
-#define QUEUE_SIZE 100
 
 // Test RC code in serial mode
 int g_test_rc = 0;
