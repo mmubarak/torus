@@ -11,34 +11,36 @@
 // processing time of message at the MPI level-- from DCMF paper
 
 //ARCH is set to 1 for BG/P and 2 for BG/Q
-#define ARCH 1
+#define ARCH 2
+#define HEADER_SIZE 8
 
 #if ARCH == 1
   #define MEAN_PROCESS 750.0
-  #define HOP_DELAY 22
+  #define HOP_DELAY 46
   #define OVERHEADS 2000.0 /*MPI software overheads*/
 // Total available tokens on a VC = VC buffer size / token size
-  #define NUM_BUF_SLOTS 1024/TOKEN_SIZE /*Each VC has a specific number of tokens and each token is of 32 bytes */
+  #define VC_SIZE 1024 /*Each VC has a specific number of tokens and each token is of 32 bytes */
+  #define NUM_BUF_SLOTS VC_SIZE/TOKEN_SIZE
   #define BANDWIDTH 0.425 /*Link bandwidth*/
   #define N_dims 3
   #define PACKET_SIZE_LIMIT 256 /* maximum size of packet in bytes */
   static int       dim_length[] = {8,8,8};
 #else
   #define MEAN_PROCESS 500.0
-  #define HOP_DELAY 8 
+  #define HOP_DELAY 40 
 /*somehow small message size on BG/Q takes more time than BG/P
 The only thing I can suspect its because of the PAMI or MPI overheads on 
 BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q accordingly*/
   #define OVERHEADS 4100.0 /*MPI software overheads*/
   #define N_dims 5
 // Total available tokens on a VC = VC buffer size / token size
-  #define NUM_BUF_SLOTS 2048/TOKEN_SIZE /*Each VC has a specific number of tokens and each token is of 32 bytes */
-  #define BANDWIDTH 2.0 /*Link bandwidth*/
+  #define BANDWIDTH 2.147 /*Link bandwidth*/
   #define PACKET_SIZE_LIMIT 512
+  #define VC_SIZE 8192 /*Each VC has a specific number of tokens and each token is of 32 bytes */
+  #define NUM_BUF_SLOTS VC_SIZE/TOKEN_SIZE
   static int       dim_length[] = {4,4,4,8,2};
 #endif
 
-#define MEAN_INTERVAL 1
 #define MPI_MESSAGE_LIMIT 50 /*Number of messages to be injected by each node */
 #define NUM_VC 2
 #define TOKEN_SIZE 32
@@ -51,6 +53,11 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 
 #define TRACK_LP 0
 #define DEBUG 1
+
+#define NUM_ZONE_NODES 32
+
+#define NUM_ROWS 32
+#define NUM_COLS 32
 
 //static dim_length[] = {8,8,8};
 //static int       dim_length[] = {8, 8, 8};
@@ -84,10 +91,24 @@ enum nodes_event_t
   MPI_RECV
 };
 
+enum traffic
+{
+  UNIFORM_RANDOM=1,
+  DRAGONFLY_ZONES,
+  TRANSPOSE,
+  NEAREST_NEIGHBOR
+};
 struct mpi_process
 {
  unsigned long long message_counter;
  tw_stime next_available_time;
+
+// For dragonfly zones, there needs to be a zone id at the torus level so that we can identify which MPI process belongs to which zone
+ int zone_id;
+
+ /*For matrix transpose traffic, we have a row and col value for each MPI process so that the message can be sent to the corresponding transpose of 
+ the MPI process */
+ int row, col;
 };
 
 struct nodes_state
@@ -102,6 +123,7 @@ struct nodes_state
   int N_wait_to_be_processed;
   int source_dim;
   int direction;
+
   //first element of linked list
   struct waiting_list * root;
 
@@ -175,14 +197,21 @@ static int	 opt_mem = 3000;
 static long mpi_message_size = 256;
 static int num_mpi_msgs = 50;
 static int distance = 1;
+static int mem_factor = 6;
+static double MEAN_INTERVAL=10.0;
+static int TRAFFIC = TRANSPOSE;
 
+//static float MEAN_INTERVAL=10.0;
 FILE *g_event_trace_file=NULL;
 int g_enable_event_trace=1;
 int num_buf_slots;
 int num_packets;
 int lp_hops = 0;
+int num_buf_slots = 0;
+int num_zones = 0;
 
 float link_delay=0.0;
+float head_delay=0.0;
 float credit_delay = 0.0;
 
 #endif
