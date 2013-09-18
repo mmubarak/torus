@@ -13,6 +13,7 @@
 //ARCH is set to 1 for BG/P and 2 for BG/Q
 #define ARCH 2
 #define TOKEN_SIZE 32
+#define REPORT_BANDWIDTH 0
 
 #if ARCH == 1
   #define MEAN_PROCESS 750.0
@@ -32,13 +33,14 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 //  #define OVERHEADS 4100.0 /*MPI software overheads*/
   #define N_dims 5
 // Total available tokens on a VC = VC buffer size / token size
-  #define BANDWIDTH 2.147 /*Link bandwidth*/
-  #define PACKET_SIZE 256
+  #define BANDWIDTH 2.0 /*Link bandwidth*/
+  #define PACKET_SIZE 512
   #define VC_SIZE 8192 /*Each VC has a specific number of tokens and each token is of 32 bytes */
   #define NUM_BUF_SLOTS VC_SIZE/TOKEN_SIZE
+  #define OVERHEAD 0.0
 //  static int       dim_length[] = {8,4,4,4,4,4,2};
     static int dim_length[] = {8,4,4,4,2};//1024 node case
-//    static int dim_length[] = {16, 8, 8, 8, 2};
+//     static int dim_length[] = {16, 8, 8, 8, 2};
 //     static int dim_length[] = {10, 10, 10, 8, 4, 4, 2};
 //     static int dim_length[] = {10, 10, 5, 4, 4, 4, 2, 2, 2};
 #endif
@@ -57,7 +59,7 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 #define DEBUG 1
 
 #define NUM_ZONE_NODES 32
-#define WAITING_PACK_COUNT 1 << 18
+#define WAITING_PACK_COUNT 1 << 22
 //static dim_length[] = {8,8,8};
 //static int       dim_length[] = {8, 8, 8};
 //static int       dim_length[] = {64,64,64,64};
@@ -95,7 +97,8 @@ enum traffic
   UNIFORM_RANDOM=1,
   DRAGONFLY_ZONES,
   TRANSPOSE,
-  NEAREST_NEIGHBOR
+  NEAREST_NEIGHBOR,
+  DIAGNOL
 };
 
 struct mpi_process
@@ -115,7 +118,7 @@ struct nodes_state
   unsigned long long packet_counter;            
 //  tw_stime next_available_time;                 
   tw_stime next_link_available_time[2*N_dims][NUM_VC]; 
-//  tw_stime next_credit_available_time[2*N_dims][NUM_VC];
+  tw_stime next_credit_available_time[2*N_dims][NUM_VC];
   int buffer[2*N_dims][NUM_VC]; 
   int dim_position[N_dims];
   int neighbour_minus_lpID[N_dims];
@@ -205,6 +208,7 @@ int num_zones = 0;
 int packet_offset = 0;
 int node_rem = 0;
 int num_rows, num_cols;
+int factor[N_dims];
 
 float head_delay=0.0;
 float credit_delay = 0.0;

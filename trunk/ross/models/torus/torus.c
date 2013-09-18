@@ -47,7 +47,6 @@ torus_init( nodes_state * s,
       half_length[ i ] = dim_length[ i ] / 2;
     }
 
-  int factor[ N_dims ];
   factor[ 0 ] = 1;
   for ( i=1; i < N_dims; i++ )
     {
@@ -223,8 +222,20 @@ packet_generate( nodes_state * s,
 	int dest_counter = msg->dest_lp;
 	if( dest_counter < N_dims)
 	   msg->dest_lp = s->neighbour_minus_lpID[dest_counter];
-	  else if(dest_counter >= N_dims && dest_counter < 2*N_dims)
+	  else if(dest_counter >= N_dims && dest_counter < 2 * N_dims)
 	     msg->dest_lp = s->neighbour_plus_lpID[dest_counter-N_dims];
+     }
+   
+   if(TRAFFIC == DIAGNOL)
+     {
+        msg->dest_lp = 0;
+	int i, dest[N_dims];
+	for( i = 0; i < N_dims; i++ )
+	 {
+	   dest[i] = dim_length[i] - s->dim_position[i] -1;
+	   msg->dest_lp += factor[ i ] * dest[ i ];
+	 }
+//	printf("\n LP GID %d sending message to %d dim %d %d %d %d %d", (int)lp->gid, (int)msg->dest_lp, dest[0], dest[1], dest[2], dest[3], dest[4]);
      }
   
     tw_lpid dst_lp = msg->dest_lp; //s->neighbour_plus_lpID[0];
@@ -307,9 +318,16 @@ credit_send( nodes_state * s,
     tw_event * buf_e;
     nodes_message *m;
     tw_stime ts;
+    int src_dir = msg->source_direction;
+    int src_dim = msg->source_dim;
+
+    msg->saved_available_time = s->next_credit_available_time[(2 * src_dim) + src_dir][0];
+    s->next_credit_available_time[(2 * src_dim) + src_dir][0] = max(s->next_credit_available_time[(2 * src_dim) + src_dir][0], tw_now(lp));
     ts =  credit_delay + tw_rand_exponential(lp->rng, credit_delay/100);
-  
-    buf_e = tw_event_new( msg->sender_lp, ts, lp);
+    s->next_credit_available_time[(2 * src_dim) + src_dir][0] += ts;
+
+    buf_e = tw_event_new( msg->sender_lp, s->next_credit_available_time[(2 * src_dim) + src_dir][0] - tw_now(lp), lp);
+   //   buf_e = tw_event_new( msg->sender_lp, ts, lp);
 
     m = tw_event_data(buf_e);
     m->source_direction = msg->source_direction;
@@ -339,7 +357,7 @@ update_waiting_list( nodes_state * s,
 /*   printf("\n Inserting message wait type %d buffer %d dir %d dim %d", msg->wait_type,
 						  s->buffer[(msg->wait_dim * 2) + msg->wait_dir][0],
 						  msg->wait_dir,
-						  sg->wait_dim);*/
+						  msg->wait_dim);*/
    s->waiting_list[loc].dim = msg->wait_dim;
    s->waiting_list[loc].dir = msg->wait_dir;
    s->waiting_list[loc].packet = msg;
@@ -420,7 +438,7 @@ packet_send( nodes_state * s,
        msg->saved_src_dir = tmp_dir;
        msg->saved_src_dim = tmp_dim;
        ts = tw_rand_exponential( lp->rng, ( double )head_delay/10 )+
-                              head_delay;
+                              head_delay + OVERHEAD;
 
 //    For reverse computation 
       msg->saved_available_time = s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0];
@@ -501,7 +519,7 @@ void packet_arrive( nodes_state * s,
   credit_send( s, bf, lp, msg); // Commented on May 22nd to check if the credit needs to be sent from the final destination or not
   
   msg->my_N_hop++;
-  ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL/100);
+  ts = 0.1 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/1000);
   if( lp->gid == msg->dest_lp )
     {   
         if( msg->chunk_id == num_chunks - 1 )    
@@ -579,7 +597,7 @@ void mpi_msg_send(mpi_process * p,
 	
 		    if( final_dst == lp->gid )
 		      {
-                        final_dst = N_nodes + (lp->gid + 1) % N_nodes;
+                        final_dst = N_nodes + (lp->gid + N_nodes/2) % N_nodes;
 		      }
 		}
 	  break;
@@ -611,14 +629,18 @@ void mpi_msg_send(mpi_process * p,
            final_dst = p->message_counter% 10;
         }
         break;
-	
-	}
+
+	case DIAGNOL:
+	  {
+	    final_dst = -1;
+	  }	
+     }
       tw_stime base_time = MEAN_PROCESS;
 	
       for( i=0; i < num_packets; i++ ) 
        {
 	      // Send the packet out
-	     ts = 0.5 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/100); 
+	     ts = 0.1 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/100); 
              msg->saved_available_time = p->available_time;
 	     p->available_time = max( p->available_time, tw_now(lp) );
 	     p->available_time += ts;
@@ -634,7 +656,7 @@ void mpi_msg_send(mpi_process * p,
 	     m->count = i;
 	     m->travel_start_time = tw_now( lp ) + ts;
 
-	     if(TRAFFIC == NEAREST_NEIGHBOR)
+	     if(TRAFFIC == NEAREST_NEIGHBOR || TRAFFIC == DIAGNOL)
 		m->dest_lp = final_dst;
 	     else
 	       {
@@ -813,6 +835,9 @@ node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 		     msg->my_N_hop--;
   		     tw_rand_reverse_unif(lp->rng);
 		     tw_rand_reverse_unif(lp->rng);
+		     int next_dim = msg->source_dim;
+		     int next_dir = msg->source_direction;
+		     s->next_credit_available_time[next_dir + ( next_dim * 2 )][0] = msg->saved_available_time;
 		   }
 	break;	
 
@@ -1019,8 +1044,6 @@ main(int argc, char **argv, char **env)
 	
 	injection_limit = 40000/MEAN_INTERVAL;
 
-	//printf("\n nlp_nodes_per_pe %d g_tw_nlp %d ", nlp_nodes_per_pe, (int)g_tw_nlp);
-
 	if(tw_ismaster())
 	{
 		printf("\nTorus Network Model Statistics:\n");
@@ -1076,23 +1099,38 @@ main(int argc, char **argv, char **env)
 		   (double)N_total_hop/total_finished_storage[N_COLLECT_POINTS-1]);
 	    printf("\n average travel time:  %lf; \n\n",
 		   total_time_sum/N_total_msgs_finish);
-	    
 	    for( i=0; i<N_COLLECT_POINTS; i++ )
 	      {
 		printf(" %d ",i*100/N_COLLECT_POINTS);
-		printf("finish: %lld; generate: %lld; alive: %lld\n",
+		printf("total finish: %lld; generate: %lld; alive: %lld \n ",
 		       total_finished_storage[i],
 		       total_generated_storage[i],
 		       total_generated_storage[i]-total_finished_storage[i]);
-		       
+//#if REPORT_BANDWIDTH	    
+//		if(i > 0)
+//		   printf(" diff finished: %lld\n", total_finished_storage[i] - total_finished_storage[i-1]); 
+//#endif
 	      }
 
+#if REPORT_BANDWIDTH	    
 	    // capture the steady state statistics
+        tw_stime bandwidth;
+        tw_stime interval = (g_tw_ts_end / N_COLLECT_POINTS);
+i	interval = interval/(1000.0 * 1000.0 * 1000.0); //convert ns to seconds
+        for( i=1; i<N_COLLECT_POINTS; i++ )
+           {
+                bandwidth = total_finished_storage[i] - total_finished_storage[i - 1];
+                bandwidth = (bandwidth * PACKET_SIZE) / (1024.0 * 1024.0 * 1024.0); // convert bytes to GB
+                bandwidth = bandwidth / interval; 
+                printf("\n Interval %lf Bandwidth %lf ", interval, bandwidth);
+           }
+
 	    unsigned long long steady_sum=0;
 	    for( i = N_COLLECT_POINTS/2; i<N_COLLECT_POINTS;i++)
 	      steady_sum+=total_generated_storage[i]-total_finished_storage[i];
 	    printf("\n Steady state, packet alive: %lld\n",
 		   2*steady_sum/N_COLLECT_POINTS);
+#endif
 	    printf("\nMax latency is %lf\n\n",g_max_latency);
 	}
 //	  if(packet_sent > 0 || credit_sent > 0)
