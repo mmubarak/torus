@@ -50,11 +50,11 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 
 // finite buffer
 //#define N_dims 3
-#define TRACK 8891200799
+#define TRACK 79120076
 #define N_COLLECT_POINTS 20
 
 #define TRACK_LP 0
-#define DEBUG 0
+#define DEBUG 1
 
 #define NUM_ZONE_NODES 32
 #define WAITING_PACK_COUNT 1 << 18
@@ -116,7 +116,7 @@ struct nodes_state
 //  tw_stime next_available_time;                 
   tw_stime next_link_available_time[2*N_dims][NUM_VC]; 
 //  tw_stime next_credit_available_time[2*N_dims][NUM_VC];
-  unsigned int buffer[2*N_dims][NUM_VC]; 
+  int buffer[2*N_dims][NUM_VC]; 
   int dim_position[N_dims];
   int neighbour_minus_lpID[N_dims];
   int neighbour_plus_lpID[N_dims];
@@ -126,7 +126,7 @@ struct nodes_state
   //first element of linked list
   struct waiting_packet * waiting_list;
   struct waiting_packet * head;
-  unsigned int wait_count;
+  long wait_count;
 };
 
 struct nodes_message
@@ -209,4 +209,8 @@ int num_rows, num_cols;
 float head_delay=0.0;
 float credit_delay = 0.0;
 int injection_limit = 0.0;
+
+// debug
+int credit_sent = 0;
+int packet_sent = 0;
 #endif

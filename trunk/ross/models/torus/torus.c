@@ -71,8 +71,12 @@ torus_init( nodes_state * s,
       s->neighbour_minus_lpID[ j ] = 0;
       
       for ( i = 0; i < N_dims; i++ )
+	{
         s->neighbour_minus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
+	}
      
+/*	if(lp->gid == 967)
+		printf("Neighbor %d ", s->neighbour_minus_lpID[ j ]);*/
       temp_dim_pos[ j ] = s->dim_position[ j ];
 
     }
@@ -86,6 +90,8 @@ torus_init( nodes_state * s,
       for ( i = 0; i < N_dims; i++ )
         s->neighbour_plus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
 
+/*	if(lp->gid == 967)
+		printf("Neighbor %d ", s->neighbour_plus_lpID[ j ]);*/
       temp_dim_pos[ j ] = s->dim_position[ j ];
     }
 
@@ -224,12 +230,12 @@ packet_generate( nodes_state * s,
     tw_lpid dst_lp = msg->dest_lp; //s->neighbour_plus_lpID[0];
     dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );
 
-//  if(tmp_dir == -1 || tmp_dim == -1)
-//    printf("\n LP %d dest LP %d dim %d dir %d ", (int)lp->gid, (int)msg->dest_lp, tmp_dim, tmp_dir);
+  if(tmp_dir == -1 || tmp_dim == -1)
+    printf("\n LP %d dest LP %d dim %d dir %d ", (int)lp->gid, (int)msg->dest_lp, tmp_dim, tmp_dir);
 
     for(j = 0; j < num_chunks; j++)
     { 
-       ts = 0.1 + tw_rand_exponential(lp->rng, j + MEAN_INTERVAL/200);
+       ts = 0.1 + tw_rand_exponential(lp->rng, (j + MEAN_INTERVAL/200));
        e_h = tw_event_new( lp->gid, ts, lp );
        m = tw_event_data( e_h );
        m->next_stop = dst_lp;
@@ -261,7 +267,7 @@ packet_generate( nodes_state * s,
          m->source_direction = tmp_dir;
          m->source_dim = tmp_dim;
 #if DEBUG
-if(m->packet_ID == TRACK)
+/*if(m->packet_ID == TRACK)
    printf("\n (%lld) Packet generated %lld 
 		     Buffer space %d 
 		     time %lf tmp_dir %d tmp_dim %d 
@@ -269,14 +275,14 @@ if(m->packet_ID == TRACK)
 		     lp->gid, m->packet_ID, 
 		     s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ], 
 		     tw_now(lp), tmp_dir, tmp_dim, 
-		     num_chunks, msg->dest_lp );
+		     num_chunks, msg->dest_lp );*/
 #endif
         }
       else 
        {
 #if DEBUG
-if(m->packet_ID == TRACK)
-   printf("\n %d Packet queued in line, buffer space %d ", (int)lp->gid, s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ]);
+//if(m->packet_ID == TRACK)
+//   printf("\n %d Packet queued in line, dir %d dim %d buffer space %d dest LP %d wait type %d ", (int)lp->gid, tmp_dir, tmp_dim, s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ], msg->dest_lp, msg->wait_type);
 #endif
             m->wait_type = GENERATE;
 	    m->type = WAIT;		
@@ -297,6 +303,7 @@ credit_send( nodes_state * s,
 //if(lp->gid == TRACK_LP)
 //	printf("\n (%lf) sending credit tmp_dir %d tmp_dim %d %lf ", tw_now(lp), msg->source_direction, msg->source_dim, credit_delay );
 #endif
+    bf->c1 = 0;
     tw_event * buf_e;
     nodes_message *m;
     tw_stime ts;
@@ -310,6 +317,12 @@ credit_send( nodes_state * s,
 
     m->type = CREDIT;
     tw_event_send( buf_e );
+    if(m->source_dim == 2 && m->source_direction == 1 && msg->sender_lp == 967)
+     {
+	bf->c1 = 1;
+	credit_sent++;	
+//	printf("\n Credit from %d ", (int)lp->gid);
+     }
 }
 /*Inserts a packet in the injection queue which then waits to be sent over the network */
 void 
@@ -323,6 +336,10 @@ update_waiting_list( nodes_state * s,
    if(loc >= WAITING_PACK_COUNT)
 	printf(" Reached maximum count of linked list %d ", s->wait_count);
 
+/*   printf("\n Inserting message wait type %d buffer %d dir %d dim %d", msg->wait_type,
+						  s->buffer[(msg->wait_dim * 2) + msg->wait_dir][0],
+						  msg->wait_dir,
+						  sg->wait_dim);*/
    s->waiting_list[loc].dim = msg->wait_dim;
    s->waiting_list[loc].dir = msg->wait_dir;
    s->waiting_list[loc].packet = msg;
@@ -336,7 +353,10 @@ packet_send( nodes_state * s,
 	         tw_bf * bf, 
 		 nodes_message * msg, 
 		 tw_lp * lp )
-{  
+{ 
+    bf->c3 = 0; 
+    bf->c2 = 0;
+    bf->c1 = 0;
     int i, vc = 0, tmp_dir, tmp_dim;
     tw_stime ts;
     tw_event *e;
@@ -368,20 +388,19 @@ packet_send( nodes_state * s,
     if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] >= NUM_BUF_SLOTS * num_chunks)
     {
          // re-schedule the message in the future
-         if(msg->packet_ID == TRACK)
-            printf("\n waiting to send the packet");
-
 	 ts = 0.1 + tw_rand_exponential( lp->rng, MEAN_INTERVAL/100);
 	 e = tw_event_new( lp->gid, ts, lp );
 	 m = tw_event_data( e );	
          m->wait_type = SEND;
 	 m->type = WAIT;
-  	 m->wait_dim = tmp_dim;
+  	 
+         m->wait_dim = tmp_dim;
+         m->wait_dir = tmp_dir;
+         
          m->next_stop = dst_lp;
 	 m->chunk_id = msg->chunk_id;
          m->dest_lp = msg->dest_lp;
          m->count = msg->count;
-         m->wait_dir = tmp_dir;
          
 	 // added may 20
 	 m->source_direction = msg->source_direction;
@@ -433,6 +452,13 @@ packet_send( nodes_state * s,
       m->my_N_hop = msg->my_N_hop;
       tw_event_send( e );
 
+      if(lp->gid == 967 && tmp_dir == 1 && tmp_dim == 2)
+       {
+//	printf("\n Sending packet to LP %d ", dst_lp);
+	bf->c2 = 1;	
+	packet_sent++;
+       }
+		
       s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ]++;
     
       if(msg->chunk_id == num_chunks - 1 && msg->sender_lp == -1)
@@ -533,6 +559,8 @@ void mpi_msg_send(mpi_process * p,
     nodes_message *m;
     tw_lpid final_dst;
     int i;//, pack_size = mpi_message_size;
+    bf->c3 = 0;
+    bf->c4 = 0;
 
     if(p->message_counter >= injection_limit)
      {
@@ -551,7 +579,7 @@ void mpi_msg_send(mpi_process * p,
 	
 		    if( final_dst == lp->gid )
 		      {
-                        final_dst = N_nodes + (p->message_counter % N_nodes);
+                        final_dst = N_nodes + (lp->gid + 1) % N_nodes;
 		      }
 		}
 	  break;
@@ -629,7 +657,7 @@ void mpi_msg_recv(mpi_process * p,
 		  tw_lp * lp)
 {
  // Message arrives at final destination
-   //bf->c3 = 0; 
+   bf->c3 = 0; 
    N_finished_msgs++;
     
 // For torus-dragonfly comparison only place the end time here
@@ -661,6 +689,7 @@ void mpi_event_handler( mpi_process * p,
      case MPI_RECV:
               mpi_msg_recv(p, bf, msg, lp);
       break; 
+  
      DEFAULT:
 		printf("\n Wrong mapping");
       break;
@@ -672,7 +701,7 @@ void mpi_event_rc_handler( mpi_process * p,
                            nodes_message * msg,
                            tw_lp * lp)
 {
-   switch(msg->type)
+ switch(msg->type)
   {
      case MPI_SEND:
                 {
@@ -730,19 +759,24 @@ tw_lp * torus_mapping_to_lp( tw_lpid lpid )
 
 void packet_buffer_process( nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp )
 {
-    msg->wait_loc = -1;
-    s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]--;
+   msg->wait_loc = -1;
+   s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]-=1;
   
+   //if(lp->gid == 967 && msg->source_direction == 1 && msg->source_dim == 2 && s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ] < 0)   
+//    if(s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ] < 0)
+	//printf("\n Buffer count went below zero LP %d count %d dir %d dim %d ", lp->gid, s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ], msg->source_direction, msg->source_dim);
+//     printf("\n LP ID %lld Dir %d Dim %d Count %d ", lp->gid, msg->source_direction, msg->source_dim, s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]);
+ 
   tw_event * e_h;
   nodes_message * m;
   tw_stime ts;
-
+  bf->c3 = 0;
   int loc=s->wait_count, j=0;
-  msg->wait_loc = -1;
   for(j = 0; j < loc; j++)
    {
     if( s->waiting_list[j].dim == msg->source_dim && s->waiting_list[j].dir == msg->source_direction)
      {
+        bf->c3=1;
 	ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL/100);
         e_h = tw_event_new( lp->gid, ts, lp );
         m = tw_event_data( e_h );
@@ -750,13 +784,11 @@ void packet_buffer_process( nodes_state * s, tw_bf * bf, nodes_message * msg, tw
         
 //        For reverse computation, also copy data to the msg 
    	memcpy(msg, s->waiting_list[j].packet, sizeof(nodes_message));
-	memcpy(&msg->wait_loc, &j, sizeof(int*));
-	m->wait_loc = j;
-
+	msg->wait_loc = j;
+	msg->type = CREDIT;
 	m->type = SEND;
         tw_event_send(e_h);
         waiting_packet_free(s, j);
-        bf->c3=1;
         break;
     }
   }
@@ -776,6 +808,8 @@ node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 	
 	case ARRIVAL:
 		   {
+			if(bf->c1)
+			   credit_sent--; 
 		     msg->my_N_hop--;
   		     tw_rand_reverse_unif(lp->rng);
 		     tw_rand_reverse_unif(lp->rng);
@@ -793,46 +827,37 @@ node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 			s->next_link_available_time[next_dir + ( next_dim * 2 )][0] = msg->saved_available_time;
 			
 			s->buffer[ next_dir + ( next_dim * 2 ) ][ 0 ] --;
+//			if( s->buffer[ next_dir + ( next_dim * 2 ) ][ 0 ] < 0)
+//			   printf("\n LESS THAN ZERO!!! %d %d ", next_dir, next_dim);
 			
                         if(bf->c1)
 			  {
 			    int index = floor( N_COLLECT_POINTS * ( tw_now( lp ) / g_tw_ts_end ) );
 			    N_generated_storage[ index ]--;
 			  }
+			if(bf->c2)
+			  packet_sent--;
 		    }
 		 }
 	break;
 
         case WAIT:
 		{
-		   if(s->wait_count > 0)
-		   {
-		     s->wait_count--;
+		     s->wait_count-=1;
 		     int loc = s->wait_count;
 		     s->waiting_list[loc].dim = -1;
 		     s->waiting_list[loc].dir = -1;
 		     s->waiting_list[loc].packet = NULL;
-		  }
 		}
         break;
 
        case CREDIT:
 		{
 		  s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]++;
-		  //if(msg->wait_loc >=0)
-		  //  printf("\n Wait loc of the message %d buffer count %d ", msg->wait_loc, s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]);
-		  /*if(s->wait_count > 0)
-		    printf("\n credit reverse handler called %d %d %d %d %d", 
-				msg->source_direction, 
-				msg->source_dim, 
-				s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ], 
-				s->wait_count,
-				bf->c3);*/
-		  if(msg->wait_loc != -1)
+		  if(bf->c3)
 		  {
 		     tw_rand_reverse_unif(lp->rng);
 		     int loc = msg->wait_loc, i;
-		     printf("\n Loc is %d ", loc);
                      int max_count = s->wait_count;
 		     if(s->wait_count >= WAITING_PACK_COUNT)
 			printf("\n Exceeded maximum count!!! ");
@@ -1069,8 +1094,9 @@ main(int argc, char **argv, char **env)
 	    printf("\n Steady state, packet alive: %lld\n",
 		   2*steady_sum/N_COLLECT_POINTS);
 	    printf("\nMax latency is %lf\n\n",g_max_latency);
-
 	}
+//	  if(packet_sent > 0 || credit_sent > 0)
+//	    printf("\n Packet sent are %d, credit sent %d ", packet_sent, credit_sent);
 	tw_end();
 	return 0;
 }
