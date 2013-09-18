@@ -17,20 +17,23 @@ static double MEAN_INTERVAL;
 
 #define N_PACKETS_PER_NODE 8
 
+#define EXP_BO 40000
+
 // finite buffer
 #define BUFFER_SIZE 2
 
 //#define ARRIVAL_RATE 0.05
 static double ARRIVAL_RATE = 0.0000001; 
 static int buffer_size = 16;
+static int N_packet_target = 100;
 
-//static int       dim_length[] = {8,8,8,8,8,8};
+static int       dim_length[] = {8,8,8,8,8,8};
 //static int       dim_length[] = {32,32};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
-static int       dim_length[] = {4,4};
-#define N_dims 2
+//static int       dim_length[] = {4,4};
+#define N_dims 6
 
 typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_state nodes_state;
