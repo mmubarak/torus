@@ -37,7 +37,8 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
   #define VC_SIZE 8192 /*Each VC has a specific number of tokens and each token is of 32 bytes */
   #define NUM_BUF_SLOTS VC_SIZE/TOKEN_SIZE
 //  static int       dim_length[] = {8,4,4,4,4,4,2};
-  static int dim_length[] = {8,4,4,4,2};
+    static int dim_length[] = {8,4,4,4,2};//1024 node case
+//    static int dim_length[] = {16, 8, 8, 8, 2};
 //     static int dim_length[] = {10, 10, 10, 8, 4, 4, 2};
 //     static int dim_length[] = {10, 10, 5, 4, 4, 4, 2, 2, 2};
 #endif
@@ -49,17 +50,14 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 
 // finite buffer
 //#define N_dims 3
-#define TRACK 490
+#define TRACK 8891200799
 #define N_COLLECT_POINTS 20
 
 #define TRACK_LP 0
-#define DEBUG 1
+#define DEBUG 0
 
 #define NUM_ZONE_NODES 32
-
-#define NUM_ROWS 32
-#define NUM_COLS 32
-#define WAITING_PACK_COUNT 100000
+#define WAITING_PACK_COUNT 800000
 //static dim_length[] = {8,8,8};
 //static int       dim_length[] = {8, 8, 8};
 //static int       dim_length[] = {64,64,64,64};
@@ -117,7 +115,7 @@ struct nodes_state
   unsigned long long packet_counter;            
 //  tw_stime next_available_time;                 
   tw_stime next_link_available_time[2*N_dims][NUM_VC]; 
-  tw_stime next_credit_available_time[2*N_dims][NUM_VC];
+//  tw_stime next_credit_available_time[2*N_dims][NUM_VC];
   unsigned int buffer[2*N_dims][NUM_VC]; 
   int dim_position[N_dims];
   int neighbour_minus_lpID[N_dims];
@@ -128,7 +126,7 @@ struct nodes_state
   //first element of linked list
   struct waiting_packet * waiting_list;
   struct waiting_packet * head;
-  int wait_count;
+  unsigned int wait_count;
 };
 
 struct nodes_message
@@ -206,6 +204,7 @@ int num_chunks;
 int num_zones = 0;
 int packet_offset = 0;
 int node_rem = 0;
+int num_rows, num_cols;
 
 float head_delay=0.0;
 float credit_delay = 0.0;
