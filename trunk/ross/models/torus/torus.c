@@ -1,33 +1,209 @@
-// Chris' version
+// Ning's version
 #include "torus.h"
 
-/*************************************************************************************/
-/* Function Dec **********************************************************************/
-/*************************************************************************************/
-tw_peid torus_mapping(tw_lpid gid);
-void torus_dimension_order_routing(nodes_state * s,nodes_message * msg, tw_lpid * dst_lp);
-void torus_setup(nodes_state * s, tw_lp * lp);
-void torus_init(nodes_state * s, tw_lp * lp);
-
-
-void torus_packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp);
-void torus_packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp);
-void torus_packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp);
-
-void torus_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp);
-void torus_rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp);
-void torus_final(nodes_state * s, tw_lp * lp);
-
-/*************************************************************************************/
-/* Function Bodys ********************************************************************/
-/*************************************************************************************/
-
-tw_peid torus_mapping(tw_lpid gid)
+tw_peid
+mapping(tw_lpid gid)
 {
-  return (tw_peid) gid / g_tw_nlp;
+	return (tw_peid) gid / g_tw_nlp;
 }
 
-void torus_dimension_order_routing(nodes_state * s,nodes_message * msg, tw_lpid * dst_lp)
+void
+torus_setup(nodes_state * s, tw_lp * lp)
+{
+  int i, j;
+  int dim_N[N_dims+1];
+  dim_N[0]=(int)lp->gid;
+
+  // calculate my torus co-ordinates
+  for (i=0; i<N_dims; i++)
+    {
+      s->dim_position[i] = dim_N[i]%dim_length[i];
+      dim_N[i+1] = ( dim_N[i] - s->dim_position[i] )/dim_length[i];
+
+      half_length[i] = dim_length[i]/2;
+    }
+
+  for (i=0; i<N_dims; i++)
+    {
+      s->node_queue_length[0][i] = 0;
+      s->node_queue_length[1][i] = 0;
+    }
+
+  int factor[N_dims];
+  factor[0]=1;
+  for (i=1; i<N_dims; i++)
+    {
+      factor[i]=1;
+      for (j=0; j<i; j++)
+        factor[i]*=dim_length[j];
+    }
+
+  int temp_dim_pos[N_dims];
+  for (i=0; i<N_dims; i++)
+    temp_dim_pos[i] = s->dim_position[i];
+
+  // calculate minus neighbour's lpID
+  for (j=0; j<N_dims; j++)
+    {
+      temp_dim_pos[j] = (s->dim_position[j] -1 + dim_length[j])%dim_length[j];
+      s->neighbour_minus_lpID[j]=0;
+      for (i=0; i<N_dims; i++)
+        s->neighbour_minus_lpID[j]+=factor[i]*temp_dim_pos[i];
+      temp_dim_pos[j] = s->dim_position[j];
+    }
+
+  // calculate plus neighbour's lpID
+  for (j=0; j<N_dims; j++)
+    {
+      temp_dim_pos[j] = (s->dim_position[j] + 1 + dim_length[j])%dim_length[j];
+      s->neighbour_plus_lpID[j]=0;
+      for (i=0; i<N_dims; i++)
+        s->neighbour_plus_lpID[j]+=factor[i]*temp_dim_pos[i];
+      temp_dim_pos[j] = s->dim_position[j];
+    }
+
+  // record LP time
+  s->packet_counter = 0;
+  s->next_available_time = 0;
+  s->N_wait_to_be_processed = 0;
+}
+
+
+void
+torus_init(nodes_state * s, tw_lp * lp)
+{
+  tw_event *e;
+  tw_stime ts;
+  nodes_message *m;
+
+  /*
+   * Set up the initial state for each LP (node)
+   * according to the number of dimensions
+   */
+  torus_setup(s, lp);
+
+  /*
+   * Start a GENERATE event on each LP
+   */
+  ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+  e = tw_event_new(lp->gid, ts, lp);
+  m = tw_event_data(e);
+  m->type = GENERATE;
+
+  m->dest_lp = lp->gid;
+  tw_event_send(e);
+
+}
+
+
+void
+packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+{
+  int i;
+  tw_stime ts;
+  tw_event *e;
+  nodes_message *m;
+
+  bf->c2 = 1;
+  bf->c6 = 1;
+  bf->c10 = 1;
+
+  if( msg->packet_ID == TRACK )
+    {
+      printf( "packet %lld has arrived\n", 
+	      msg->packet_ID );
+      for( i = 0; i < N_dims; i++ )
+	printf( "the %d dim position is %d\n",
+		i,
+		s->dim_position[i]);
+      printf("packet %lld destination is\n",
+	     msg->packet_ID);
+      for( i = 0; i < N_dims; i++ )
+	printf(" the %d dim position is %d\n", 
+	       i,
+	       msg->dest[i]);
+      printf("lp time is %f travel start time is %f\n",
+	     tw_now(lp),
+	     msg->travel_start_time);
+      printf("My hop now is %d\n",msg->my_N_hop);
+      //printf("accumulated queue length is %lld\n",
+      //msg->accumulate_queue_length);
+      printf("\n");
+    }
+
+  /*  if (s->node_queue_length[msg->source_direction][msg->source_dim]>buffer_size)
+    {
+      bf->c2 = 0;
+      N_dropped++;
+      int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
+      N_dropped_storage[index]++;
+    }
+  else{
+  */
+  // Packet arrives and accumulate # queued
+  msg->queueing_times += s->N_wait_to_be_processed;
+  // One more arrives and wait to be processed
+  s->N_wait_to_be_processed++;
+
+    msg->my_N_hop++;
+    msg->my_N_queue+=s->node_queue_length[msg->source_direction][msg->source_dim];
+    /*    if (lp->gid ==  msg->dest_lp )
+      {
+	bf->c6 = 0;
+	N_finished++;
+	int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
+	N_finished_storage[index]++;
+	total_time += tw_now(lp) - msg->travel_start_time;
+	total_hops += msg->my_N_hop;
+	//total_queue_length += msg->accumulate_queue_length;
+      }
+    */
+    /*
+     * If no packet is queueing, router is available now
+     * if there are some packets queueing, then available time > tw_now(lp)
+     * add one more MEAN_PROCESS to available time
+     */
+
+    msg->saved_available_time = s->next_available_time;
+    s->next_available_time = max(s->next_available_time, tw_now(lp));
+    // consider 1% noise on packet header parsing
+    ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS;
+    //ts = MEAN_PROCESS;
+
+
+    //s->queue_length_sum += 
+    //s->node_queue_length[msg->source_direction][msg->source_dim];
+    s->node_queue_length[msg->source_direction][msg->source_dim]++;
+
+    e = tw_event_new(lp->gid, s->next_available_time - tw_now(lp), lp);
+
+    s->next_available_time += ts;    
+
+    m = tw_event_data(e);
+    m->type = PROCESS;
+    
+    //carry on the message info	
+    for( i = 0; i < N_dims; i++ )
+      m->dest[i] = msg->dest[i];
+    m->dest_lp = msg->dest_lp;
+    m->transmission_time = msg->transmission_time;
+    
+    m->source_dim = msg->source_dim;
+    m->source_direction = msg->source_direction;
+    
+    m->packet_ID = msg->packet_ID;	  
+    m->travel_start_time = msg->travel_start_time;
+
+    m->my_N_hop = msg->my_N_hop;
+    m->my_N_queue = msg->my_N_queue;
+    m->queueing_times = msg->queueing_times;
+    
+    tw_event_send(e);
+    //  }
+}
+
+void 
+dimension_order_routing(nodes_state * s,nodes_message * msg, tw_lpid * dst_lp)
 {
   int i;
   for( i = 0; i < N_dims; i++ )
@@ -65,152 +241,56 @@ void torus_dimension_order_routing(nodes_state * s,nodes_message * msg, tw_lpid 
 }
 
 void
-torus_setup(nodes_state * s, tw_lp * lp)
+packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
-  int i, j;
-  int dim_N[N_dims+1];
-  dim_N[0]=(int)lp->gid;
-  char tracefilename[80];
+  int i;
+  tw_lpid dst_lp;
+  tw_stime ts;
+  tw_event *e;
+  nodes_message *m;
 
-  // open event tracefile
-  if( g_enable_event_trace && g_event_trace_file == NULL )
-    {
-      sprintf(tracefilename, "event-trace-%d", g_tw_mynode );
-      g_event_trace_file = fopen( tracefilename, "w");
-    }
-
-  // calculate my torus co-ordinates
-  for (i=0; i<N_dims; i++)
-    {
-      s->dim_position[i] = dim_N[i]%dim_length[i];
-      dim_N[i+1] = ( dim_N[i] - s->dim_position[i] )/dim_length[i];
-
-      half_length[i] = dim_length[i]/2;
-    }
-
-  for (i=0; i<N_dims; i++)
-    {
-      s->node_queue_length[0][i] = 0;
-      s->node_queue_length[1][i] = 0;
-    }
-
-  int factor[N_dims];
-  factor[0]=1;
-  for (i=1; i<N_dims; i++)
-    {
-      factor[i]=1;
-      for (j=0; j<i; j++)
-        factor[i]*=dim_length[j];
-    }
-
-  int temp_dim_pos[N_dims];
-  for (i=0; i<N_dims; i++)
-    temp_dim_pos[i] = s->dim_position[i];
-
-  // calculate minus neighbour's lpID
-  printf("LP %ld -Dir: ", lp->gid);
-  for (j=0; j<N_dims; j++)
-    {
-      temp_dim_pos[j] = (s->dim_position[j] -1 + dim_length[j])%dim_length[j];
-      s->neighbour_minus_lpID[j]=0;
-      for (i=0; i<N_dims; i++)
-	{
-	  s->neighbour_minus_lpID[j]+=factor[i]*temp_dim_pos[i];
-	}
-      printf("%ld ", s->neighbour_minus_lpID[j]);
-      temp_dim_pos[j] = s->dim_position[j];
-    }
-  printf("\n");
-
-  // calculate plus neighbour's lpID
-  printf("LP %ld +Dir: ", lp->gid);
-  for (j=0; j<N_dims; j++)
-    {
-      temp_dim_pos[j] = (s->dim_position[j] + 1 + dim_length[j])%dim_length[j];
-      s->neighbour_plus_lpID[j]=0;
-      for (i=0; i<N_dims; i++)
-	{
-	  s->neighbour_plus_lpID[j]+=factor[i]*temp_dim_pos[i];
-	}
-      printf("%ld ", s->neighbour_plus_lpID[j]);
-      temp_dim_pos[j] = s->dim_position[j];
-    }
-  printf("\n");
-  // record LP time
-  s->packet_counter = 0;
-  s->next_available_time = 0;
-  s->N_wait_to_be_processed = 0;
-}
-
-
-void
-torus_init(nodes_state * s, tw_lp * lp)
-{
-  tw_event *e=NULL;
-  tw_stime ts=0.0;
-  nodes_message *m=NULL;;
-
+  ts = LINK_DELAY+PACKET_SIZE;//msg->transmission_time;
+  
   /*
-   * Set up the initial state for each LP (node)
-   * according to the number of dimensions
+   * Routing in the torus, start from the first dimension
    */
-  torus_setup(s, lp);
-
+  
+  if (lp->gid !=  msg->dest_lp )  
+    {
+      bf->c3 = 1;
+      dimension_order_routing(s,msg,&dst_lp);
+      msg->source_dim = s->source_dim;
+      msg->source_direction = s->direction;
+    }
+  else
+    {
+      bf->c3 = 0;
+      dst_lp = lp->gid;
+    }
+  
+  //////////////////////////////////////////
   /*
-   * Start a GENERATE event on each LP
-   */
-  ts = tw_rand_exponential(&(lp->rng[GENERATE]), MEAN_INTERVAL);
-  e = tw_event_new(lp->gid, ts, lp);
+  e = tw_event_new(dst_lp, ts, lp);
   m = tw_event_data(e);
-  m->type = GENERATE;
-
-  m->dest_lp = lp->gid;
-  m->src_lp = lp->gid;
-  tw_event_send(e);
-
-}
-
-void torus_packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
-{
-  int i=0;
-  tw_lpid dst_lp=0;
-  tw_stime ts=0.0;
-  tw_event *e=NULL;
-  nodes_message *m=NULL;
-  nodes_message *next_gen_m=NULL;
-  int dim_N[N_dims];
-
-  // state save values in message
+  m->type = ARRIVAL;
+  */
+  ////////////////////////////////////////////////////////////////////
   msg->saved_source_dim = s->source_dim;
   msg->saved_direction = s->direction;
-
-  // compute lp dest
-  dst_lp = tw_rand_integer(&(lp->rng[GENERATE]),0,N_nodes-1);
-  if( dst_lp == lp->gid )
-    dst_lp = (dst_lp + 1) % N_nodes;
-
-  if( g_enable_event_trace && 
-      torus_mapping(dst_lp) != torus_mapping(lp->gid) )
-    {
-      fprintf( g_event_trace_file, "GENERATE REMOTE PACKET: src lp(%ld) to dest lp(%ld) at %lf \n", 
-	       lp->gid, dst_lp, tw_now(lp) );
-    fflush(g_event_trace_file);
-    }
-
-  // convert lp dest to torus coordinates and mod lp state vars
-  if (lp->gid !=  dst_lp )  
-      torus_dimension_order_routing(s,msg,&dst_lp);
-  else
-      tw_error( TW_LOC, "LP %ld Attempt to send packet to self at TS = %lf \n", 
-		lp->gid, tw_now(lp) );
-  
   msg->saved_link_available_time[s->direction][s->source_dim] = 
     s->next_link_available_time[s->direction][s->source_dim];
 
   s->next_link_available_time[s->direction][s->source_dim] = 
     max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp));
+  // consider 1% noise on packet header parsing
+  //ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS;
+  ts = tw_rand_exponential(lp->rng, (double)LINK_DELAY/1000)+
+    LINK_DELAY+PACKET_SIZE;
+  
+  //s->queue_length_sum += 
+  //s->node_queue_length[msg->source_direction][msg->source_dim];
+  //s->node_queue_length[msg->source_direction][msg->source_dim]++;
 
-  ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(&(lp->rng[GENERATE]));
   s->next_link_available_time[s->direction][s->source_dim] += ts;      
 
   e = tw_event_new( dst_lp, 
@@ -220,107 +300,13 @@ void torus_packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_
 
   m = tw_event_data(e);
   m->type = ARRIVAL;
-  m->transmission_time = PACKET_SIZE;
-  dim_N[0]=dst_lp;
-    
-  for (i=0; i<N_dims; i++)
-    {
-      m->dest[i] = dim_N[i]%dim_length[i];
-      dim_N[i+1] = ( dim_N[i] - m->dest[i] )/dim_length[i];
-    }
-
-  // record start time
-  m->travel_start_time = tw_now(lp);
-  m->my_N_queue = 0;
-  m->my_N_hop = 0;
-  m->queueing_times = 0;
   
-  // set up packet ID
-  // each packet has a unique ID
-  m->packet_ID = lp->gid + g_tw_nlp*s->packet_counter;
-  m->dest_lp = dst_lp;
-  m->src_lp = lp->gid;
-  m->source_dim = s->source_dim;
-  m->source_direction = s->direction;
-  tw_event_send(e);
-
-  // One more packet is generating 
-  s->packet_counter++;
-  int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
-  N_generated_storage[index]++;
-
-  // schedule next GENERATE event
-  ts = tw_rand_exponential(&(lp->rng[GENERATE]), MEAN_INTERVAL);	
-  //ts = MEAN_INTERVAL;
-  e = tw_event_new(lp->gid, ts, lp);
-  next_gen_m = tw_event_data(e);
-  next_gen_m->type = GENERATE;
-  next_gen_m->dest_lp = lp->gid;
-  next_gen_m->src_lp = lp->gid;
-  tw_event_send(e);
-}
-
-void torus_packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
-{
-  int i=0;
-  tw_event *e=NULL;
-  nodes_message *m=NULL;
-
-  bf->c2 = 1;
-  bf->c6 = 1;
-  bf->c10 = 1;
-
-  if( msg->packet_ID == TRACK )
-    {
-      printf( "packet %lld has arrived\n", 
-	      msg->packet_ID );
-      for( i = 0; i < N_dims; i++ )
-	printf( "the %d dim position is %d\n",
-		i,
-		s->dim_position[i]);
-      printf("packet %lld destination is\n",
-	     msg->packet_ID);
-      for( i = 0; i < N_dims; i++ )
-	printf(" the %d dim position is %d\n", 
-	       i,
-	       msg->dest[i]);
-      printf("lp time is %f travel start time is %f\n",
-	     tw_now(lp),
-	     msg->travel_start_time);
-      printf("My hop now is %d\n",msg->my_N_hop);
-      //printf("accumulated queue length is %lld\n",
-      //msg->accumulate_queue_length);
-      printf("\n");
-    }
-
-  // Packet arrives and accumulate # queued
-  msg->queueing_times += s->N_wait_to_be_processed;
-
-  // One more arrives and wait to be processed
-  s->N_wait_to_be_processed++;
-  msg->my_N_hop++;
-  msg->my_N_queue+=s->node_queue_length[msg->source_direction][msg->source_dim];
-  /*
-   * If no packet is queueing, router is available now
-   * if there are some packets queueing, then available time > tw_now(lp)
-   * add one more MEAN_PROCESS to available time
-   */
+  ///////////////////////////////////////////////////////////////
   
-  msg->saved_available_time = s->next_available_time;
-  s->next_available_time = max(s->next_available_time, tw_now(lp));
-  
-  // consider low noise on packet parsing
-    s->node_queue_length[msg->source_direction][msg->source_dim]++;
-  s->next_available_time += MEAN_PROCESS + tw_rand_unif(&(lp->rng[ARRIVAL]));
-  e = tw_event_new(lp->gid, s->next_available_time - tw_now(lp), lp);
-  m = tw_event_data(e);
-  m->type = PROCESS;
-  
-  //carry on the message info	
+  // Carry on the message info
   for( i = 0; i < N_dims; i++ )
     m->dest[i] = msg->dest[i];
   m->dest_lp = msg->dest_lp;
-  m->src_lp = msg->src_lp;
   m->transmission_time = msg->transmission_time;
   
   m->source_dim = msg->source_dim;
@@ -328,22 +314,22 @@ void torus_packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp
   
   m->packet_ID = msg->packet_ID;	  
   m->travel_start_time = msg->travel_start_time;
-  
+
   m->my_N_hop = msg->my_N_hop;
   m->my_N_queue = msg->my_N_queue;
   m->queueing_times = msg->queueing_times;
   
   tw_event_send(e);
-  
 }
 
-void torus_packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+
+
+void
+packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
   int i;
   tw_event *e;
   nodes_message *m;
-  tw_lpid dst_lp;
-  tw_stime ts=0.0;
 
   bf->c3 = 1;
   // One packet leaves the queue
@@ -367,34 +353,14 @@ void torus_packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_l
     }
   else
     {
-      bf->c3 = 1;
-      torus_dimension_order_routing(s,msg,&dst_lp);
-      msg->source_dim = s->source_dim;
-      msg->source_direction = s->direction;
-
-      msg->saved_source_dim = s->source_dim;
-      msg->saved_direction = s->direction;
-      msg->saved_link_available_time[s->direction][s->source_dim] = 
-	s->next_link_available_time[s->direction][s->source_dim];
-
-      s->next_link_available_time[s->direction][s->source_dim] = 
-	max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp));
-      ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(&(lp->rng[SEND]));
-      s->next_link_available_time[s->direction][s->source_dim] += ts;      
-      
-      e = tw_event_new( dst_lp, 
-			s->next_link_available_time[s->direction][s->source_dim] 
-			- tw_now(lp), 
-			lp);
-
+      e = tw_event_new(lp->gid, MEAN_PROCESS, lp);
       m = tw_event_data(e);
-      m->type = ARRIVAL;
-  
-   // Carry on the message info
+      m->type = SEND;
+      
+      // Carry on the message info
       for( i = 0; i < N_dims; i++ )
 	m->dest[i] = msg->dest[i];
       m->dest_lp = msg->dest_lp;
-      m->src_lp = msg->src_lp;
       m->transmission_time = msg->transmission_time;
       
       m->source_dim = msg->source_dim;
@@ -402,225 +368,126 @@ void torus_packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_l
       
       m->packet_ID = msg->packet_ID;	  
       m->travel_start_time = msg->travel_start_time;
+
       m->my_N_hop = msg->my_N_hop;
       m->my_N_queue = msg->my_N_queue;
       m->queueing_times = msg->queueing_times;
+
       tw_event_send(e);
+      
     }
+  
 }
 
-void torus_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+void 
+packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
+  //unsigned long long i;
   int i;
-  nodes_state saved_s;
-  tw_rng_stream saved_rng;
+  tw_lpid dst_lp;
+  tw_stime ts;
+  tw_event *e;
+  nodes_message *m;
 
-  if( g_enable_event_trace )
+  // Send the packet out
+  e = tw_event_new(lp->gid, 0, lp);
+  m = tw_event_data(e);
+  m->type = SEND;
+  m->transmission_time = PACKET_SIZE;
+  
+  // Set up random destination
+  dst_lp = tw_rand_integer(lp->rng,0,N_nodes-1);
+  //rand_total += dst_lp;
+  int dim_N[N_dims];
+  dim_N[0]=dst_lp;
+    
+  for (i=0; i<N_dims; i++)
     {
-      fprintf( g_event_trace_file,
-	       "EVENT: LP %ld, Msg Type %d, Time %lf \n", 
-	       lp->gid, msg->type, tw_now(lp) );
-      if( torus_mapping(msg->dest_lp) != torus_mapping(msg->src_lp) )
-	{
-	  fprintf(g_event_trace_file, "Remote Event: SrcLP %ld to Dest LP %ld at %lf for MsgType %d \n",
-		  msg->src_lp, msg->dest_lp, tw_now(lp), msg->type );
-	  fflush( g_event_trace_file );
-	}
-
-      if( g_tw_last_event_ts == tw_now(lp) )
-	{
-	  fprintf( g_event_trace_file, "TIE EVENT: LAST: %ld, %d, %lf .....CURRENT: %ld, %d, %lf\n",
-		   g_tw_last_event_lpid,
-		   g_tw_last_event_type,
-		   g_tw_last_event_ts,
-		   lp->gid,
-		   msg->type,
-		   tw_now(lp) );
-	  fflush(g_event_trace_file);
-	}
+      m->dest[i] = dim_N[i]%dim_length[i];
+      dim_N[i+1] = ( dim_N[i] - m->dest[i] )/dim_length[i];
     }
 
-  g_tw_last_event_lpid = lp->gid;
-  g_tw_last_event_type = msg->type;
-  g_tw_last_event_ts = tw_now(lp);
+  // record start time
+  m->travel_start_time = tw_now(lp);
+  m->my_N_queue = 0;
+  m->my_N_hop = 0;
+  m->queueing_times = 0;
+  
+  // set up packet ID
+  // each packet has a unique ID
+  m->packet_ID = lp->gid + g_tw_nlp*s->packet_counter;
+  
+  m->dest_lp = dst_lp;
+  tw_event_send(e);	    
 
-  if( g_test_rc )
-    {
-      memcpy( &saved_s, s, sizeof(nodes_state));
-      memcpy( &saved_rng, lp->rng, sizeof(tw_rng_stream));
-    }
+  // One more packet is generating 
+  s->packet_counter++;
+  int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
+  N_generated_storage[index]++;
+
+  // schedule next GENERATE event
+  ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL);	
+  //ts = MEAN_INTERVAL;
+  e = tw_event_new(lp->gid, ts, lp);
+  m = tw_event_data(e);
+  m->type = GENERATE;
+  
+  m->dest_lp = lp->gid;
+  tw_event_send(e);
+
+}
+
+
+void
+event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+{
 
   switch(msg->type)
     {
     case GENERATE:
-      torus_packet_generate(s,bf,msg,lp);
+      packet_generate(s,bf,msg,lp);
       break;
     case ARRIVAL:
-      torus_packet_arrive(s,bf,msg,lp);
+      packet_arrive(s,bf,msg,lp);
+      break;
+    case SEND:
+      packet_send(s,bf,msg,lp);
       break;
     case PROCESS:
-      torus_packet_process(s,bf,msg,lp);
+      packet_process(s,bf,msg,lp);
       break;
     }
-
-  if( g_test_rc )
-    {
-      torus_rc_event_handler( s, bf, msg, lp );
-
-      if( s->packet_counter != saved_s.packet_counter )
-	{
-	  printf("LP %ld, Msg %d: Packet counter not restored: ARB %lld, SAVED %lld \n",
-		 lp->gid, msg->type, s->packet_counter, saved_s.packet_counter );
-	}
-
-      if( s->next_available_time != saved_s.next_available_time )
-	{
-	  printf("LP %ld, Msg %d: Next Avail Time not restored: ARB %lf, SAVED %lf \n",
-		 lp->gid, msg->type, 
-		 s->next_available_time, 
-		 saved_s.next_available_time );
-	}
-
-      for( i = 0; i < N_dims; i++ )
-	{
-	  if( s->next_link_available_time[0][i] != 
-	      saved_s.next_link_available_time[0][i] )
-	    {
-	      printf("LP %ld, Msg %d: NLAT[0][%d] not restored: ARB %lf, SAVED %lf \n",
-		     lp->gid, msg->type, i,
-		 s->next_link_available_time[0][i], 
-		 saved_s.next_link_available_time[0][i] );
-	    }
-	  if( s->next_link_available_time[1][i] != 
-	      saved_s.next_link_available_time[1][i] )
-	    {
-	      printf("LP %ld, Msg %d: NLAT[1][%d] not restored: ARB %lf, SAVED %lf \n",
-		     lp->gid, msg->type, i,
-		 s->next_link_available_time[1][i], 
-		 saved_s.next_link_available_time[1][i] );
-	    }
-	  if( s->dim_position[i] != 
-	      saved_s.dim_position[i] )
-	    {
-	      printf("LP %ld, Msg %d: dim_position[%d] not restored: ARB %d, SAVED %d \n",
-		     lp->gid, msg->type, i,
-		     s->dim_position[i], 
-		     saved_s.dim_position[i] );
-	    }
-	  if( s->neighbour_minus_lpID[i] != 
-	      saved_s.neighbour_minus_lpID[i] )
-	    {
-	      printf("LP %ld, Msg %d: NMLPID[%d] not restored: ARB %d, SAVED %d \n",
-		     lp->gid, msg->type, i,
-		     s->neighbour_minus_lpID[i], 
-		     saved_s.neighbour_minus_lpID[i] );
-	    }
-	  if( s->neighbour_plus_lpID[i] != 
-	      saved_s.neighbour_plus_lpID[i] )
-	    {
-	      printf("LP %ld, Msg %d: NPLPID[%d] not restored: ARB %d, SAVED %d \n",
-		     lp->gid, msg->type, i,
-		     s->neighbour_plus_lpID[i], 
-		     saved_s.neighbour_plus_lpID[i] );
-	    }
-
-	  if( s->node_queue_length[0][i] != 
-	      saved_s.node_queue_length[0][i] )
-	    {
-	      printf("LP %ld, Msg %d: NQL[0][%d] not restored: ARB %d, SAVED %d \n",
-		     lp->gid, msg->type, i,
-		     s->node_queue_length[0][i], 
-		     saved_s.node_queue_length[0][i] );
-	    }
-	  if( s->node_queue_length[1][i] != 
-	      saved_s.node_queue_length[1][i] )
-	    {
-	      printf("LP %ld, Msg %d: NQL[1][%d] not restored: ARB %d, SAVED %d \n",
-		     lp->gid, msg->type, i,
-		     s->node_queue_length[1][i], 
-		     saved_s.node_queue_length[1][i] );
-	    }
-
-	}
-
-      if( s->N_wait_to_be_processed != 
-	  saved_s.N_wait_to_be_processed )
-	{
-	  printf("LP %ld, Msg %d: NWTBP not restored: ARB %d, SAVED %d \n",
-		 lp->gid, msg->type,
-		 s->N_wait_to_be_processed,
-		 saved_s.N_wait_to_be_processed );
-	}
-
-      if( s->source_dim !=
-	  saved_s.source_dim )
-	{
-	  printf("LP %ld, Msg %d: TS %lf: source_dim not restored: ARB %d, SAVED %d \n",
-		 lp->gid, msg->type, tw_now(lp),
-		 s->source_dim,
-		 saved_s.source_dim );
-	}
-
-      if( s->direction !=
-	  saved_s.direction )
-	{
-	  printf("LP %ld, Msg %d: TS %lf: direction not restored: ARB %d, SAVED %d \n",
-		 lp->gid, msg->type, tw_now(lp),
-		 s->direction,
-		 saved_s.direction );
-	}
-
-
-      if( s->generate_counter !=
-	  saved_s.generate_counter )
-	{
-	  printf("LP %ld, Msg %d: generate_counter not restored: ARB %d, SAVED %d \n",
-		 lp->gid, msg->type,
-		 s->generate_counter,
-		 saved_s.generate_counter );
-	}
-
-      for( i = 0; i < 4; i++ )
-	if( saved_rng.Ig[i] != lp->rng->Ig[i] ||
-	    saved_rng.Lg[i] != lp->rng->Lg[i] ||
-	    saved_rng.Cg[i] != lp->rng->Cg[i] )
-	  printf("LP %ld, Msg %d: RNGs not properly reversed: Diff on index %d \n", lp->gid, msg->type, i);
-    }
-
 }
 
 void
-torus_rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
-  if( g_enable_event_trace )
-    {
-      fprintf( g_event_trace_file,
-	       "REVERSE EVENT: LP %ld, Msg Type %d, Time %lf \n", 
-	       lp->gid, msg->type, tw_now(lp) );
-    }
-
   int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
   switch(msg->type)
     {
     case GENERATE:
       N_generated_storage[index]--;
       s->packet_counter--;
-      tw_rand_reverse_unif(&(lp->rng[GENERATE]));
-      tw_rand_reverse_unif(&(lp->rng[GENERATE]));
-      s->next_link_available_time[s->direction][s->source_dim]=      
-	msg->saved_link_available_time[s->direction][s->source_dim];
-      s->source_dim = msg->saved_source_dim;
-      s->direction = msg->saved_direction;
-      tw_rand_reverse_unif(&(lp->rng[SEND]));
+      tw_rand_reverse_unif(lp->rng);
+      tw_rand_reverse_unif(lp->rng);
       break;
     case ARRIVAL:
       s->next_available_time = msg->saved_available_time;
-      tw_rand_reverse_unif(&(lp->rng[ARRIVAL]));
+      tw_rand_reverse_unif(lp->rng);
       msg->my_N_hop--;
       s->N_wait_to_be_processed--;
+      
       msg->queueing_times -= s->N_wait_to_be_processed;
+
       s->node_queue_length[msg->source_direction][msg->source_dim]--;
       msg->my_N_queue-=s->node_queue_length[msg->source_direction][msg->source_dim];
+      break;
+    case SEND:      
+      s->source_dim = msg->saved_source_dim;
+      s->direction = msg->saved_direction;
+      s->next_link_available_time[s->direction][s->source_dim]=      
+	msg->saved_link_available_time[s->direction][s->source_dim];
+      tw_rand_reverse_unif(lp->rng);
       break;
     case PROCESS:
      if ( bf->c3 == 0 )
@@ -633,21 +500,14 @@ torus_rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp *
 	  //event_queue_length -= msg->queue_length;
 	  queueing_times_sum -= msg->queueing_times;
 	}
-     else
-       {
-	 s->next_link_available_time[s->direction][s->source_dim]=      
-	   msg->saved_link_available_time[s->direction][s->source_dim];
-	 s->source_dim = msg->saved_source_dim;
-	 s->direction = msg->saved_direction;
-	 tw_rand_reverse_unif(&(lp->rng[SEND]));
-       }
       s->node_queue_length[msg->source_direction][msg->source_dim]++;
       s->N_wait_to_be_processed++;
       break;
     }
 }
 
-void torus_final(nodes_state * s, tw_lp * lp)
+void
+final(nodes_state * s, tw_lp * lp)
 {
 }
 
@@ -655,10 +515,10 @@ tw_lptype nodes_lps[] =
 {
 	{
 		(init_f) torus_init,
-		(event_f) torus_event_handler,
-		(revent_f) torus_rc_event_handler,
-		(final_f) torus_final,
-		(map_f) torus_mapping,
+		(event_f) event_handler,
+		(revent_f) rc_event_handler,
+		(final_f) final,
+		(map_f) mapping,
 		sizeof(nodes_state),
 	},
 	{0},
@@ -672,7 +532,9 @@ const tw_optdef app_opt [] =
 	TWOPT_END()
 };
 
-int main(int argc, char **argv, char **env)
+
+int
+main(int argc, char **argv, char **env)
 {
 	int i;
 	tw_opt_add(app_opt);
@@ -683,9 +545,8 @@ int main(int argc, char **argv, char **env)
 
 	//MEAN_INTERVAL = N_nodes/ARRIVAL_RATE;
 	// MEAN_INTERVAL = 1000/ARRIVAL_RATE;
-	MEAN_INTERVAL = 10000.0;
-        g_tw_nRNG_per_lp = 4;
-        g_tw_rng_max = 4;
+        MEAN_INTERVAL = 10000.0;
+
 	nlp_per_pe = N_nodes/tw_nnodes()/g_tw_npe;
 	g_tw_events_per_pe = nlp_per_pe/g_tw_npe + opt_mem;
 	tw_define_lps(nlp_per_pe, sizeof(nodes_message), 0);
@@ -694,11 +555,6 @@ int main(int argc, char **argv, char **env)
 	  tw_lp_settype(i, &nodes_lps[0]);
 
 	tw_run();
-
-	if( g_enable_event_trace )
-	  {
-	    fclose( g_event_trace_file );
-	  }
 
 	if(tw_ismaster())
 	{
@@ -788,81 +644,3 @@ int main(int argc, char **argv, char **env)
 	tw_end();
 	return 0;
 }
-
-/************************************************************************************************/
-/*************************** NO LONGER USED *****************************************************/
-/************************************************************************************************/
-/* void */
-/* packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp) */
-/* { */
-/*   int i=0; */
-/*   tw_lpid dst_lp=0; */
-/*   tw_stime ts=0.0; */
-/*   tw_event *e=NULL; */
-/*   nodes_message *m=NULL; */
-
-/*   // ts = LINK_DELAY+PACKET_SIZE;//msg->transmission_time; */
-  
-/*   /\* */
-/*    * Routing in the torus, start from the first dimension */
-/*    *\/ */
-  
-/*   if (lp->gid !=  msg->dest_lp )   */
-/*     { */
-/*       bf->c3 = 1; */
-/*       dimension_order_routing(s,msg,&dst_lp); */
-/*       msg->source_dim = s->source_dim; */
-/*       msg->source_direction = s->direction; */
-/*     } */
-/*   else */
-/*     { */
-/*       bf->c3 = 0; */
-/*       dst_lp = lp->gid; */
-/*       printf("LP %ld Attempt to send packet to self at TS = %lf \n", lp->gid, tw_now(lp) ); */
-/*     } */
-  
-/*   msg->saved_source_dim = s->source_dim; */
-/*   msg->saved_direction = s->direction; */
-/*   msg->saved_link_available_time[s->direction][s->source_dim] =  */
-/*     s->next_link_available_time[s->direction][s->source_dim]; */
-
-/*   s->next_link_available_time[s->direction][s->source_dim] =  */
-/*     max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp)); */
-/*   // consider 1% noise on packet header parsing */
-/*   //ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS; */
-/*   ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(&(lp->rng[SEND])); */
-  
-/*   //s->queue_length_sum +=  */
-/*   //s->node_queue_length[msg->source_direction][msg->source_dim]; */
-/*   //s->node_queue_length[msg->source_direction][msg->source_dim]++; */
-
-/*   s->next_link_available_time[s->direction][s->source_dim] += ts;       */
-
-/*   e = tw_event_new( dst_lp,  */
-/* 		    s->next_link_available_time[s->direction][s->source_dim]  */
-/* 		    - tw_now(lp),  */
-/* 		    lp); */
-
-/*   m = tw_event_data(e); */
-/*   m->type = ARRIVAL; */
-  
-/*   /////////////////////////////////////////////////////////////// */
-  
-/*   // Carry on the message info */
-/*   for( i = 0; i < N_dims; i++ ) */
-/*     m->dest[i] = msg->dest[i]; */
-/*   m->dest_lp = msg->dest_lp; */
-/*   m->transmission_time = msg->transmission_time; */
-  
-/*   m->source_dim = msg->source_dim; */
-/*   m->source_direction = msg->source_direction; */
-  
-/*   m->packet_ID = msg->packet_ID;	   */
-/*   m->travel_start_time = msg->travel_start_time; */
-
-/*   m->my_N_hop = msg->my_N_hop; */
-/*   m->my_N_queue = msg->my_N_queue; */
-/*   m->queueing_times = msg->queueing_times; */
-  
-/*   tw_event_send(e); */
-/* } */
