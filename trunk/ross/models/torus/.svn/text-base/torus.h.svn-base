@@ -24,8 +24,8 @@ static double ARRIVAL_RATE = 0.0000001;
 //static int       dim_length[] = {32,32};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
-static int       dim_length[] = {8,8,8,8,8,8,8,8};
-#define N_dims 8
+static int       dim_length[] = {4,4,4,4,4,4};
+#define N_dims 6
 
 typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_state nodes_state;
@@ -38,9 +38,6 @@ typedef struct nodes_message nodes_message;
 // Debug
 #define TRACK -1
 #define N_COLLECT_POINTS 20
-
-// Test RC code in serial mode
-int g_test_rc = 0;
 
 // Total number of nodes in torus, calculate in main
 static int       N_nodes = 1;
@@ -55,36 +52,48 @@ enum nodes_event_t
 
 struct nodes_state
 {
-  unsigned long long packet_counter;            
-  tw_stime next_available_time;                 
-  tw_stime next_link_available_time[2][N_dims]; 
+  unsigned long long packet_counter;
+  tw_stime next_available_time;
+  tw_stime next_link_available_time[2][N_dims];
+
   int dim_position[N_dims];
   int neighbour_minus_lpID[N_dims];
   int neighbour_plus_lpID[N_dims];
   int node_queue_length[2][N_dims];
   int N_wait_to_be_processed;
+
   int source_dim;
   int direction;
+
   int generate_counter;
+
 };
 
 struct nodes_message
 {
   tw_stime transmission_time;
   tw_stime travel_start_time;
+
   tw_stime saved_available_time;
   tw_stime saved_link_available_time[2][N_dims];
+
   unsigned long long packet_ID;
+
   nodes_event_t	 type;
+
   int saved_source_dim;
   int saved_direction;
+
   int dest[N_dims];
   int dest_lp;
+
   int my_N_queue;
   int my_N_hop;
   int queueing_times;
+
   int source_dim;
   int source_direction;
+
   int next_stop;
 };
 
