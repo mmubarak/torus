@@ -101,10 +101,9 @@ torus_init(nodes_state * s, tw_lp * lp)
 void
 packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
-  int i;
-  tw_stime ts;
-  tw_event *e;
-  nodes_message *m;
+  int i=0;
+  tw_event *e=NULL;
+  nodes_message *m=NULL;
 
   bf->c2 = 1;
   bf->c6 = 1;
@@ -150,13 +149,9 @@ packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   s->next_available_time = max(s->next_available_time, tw_now(lp));
   
   // consider low noise on packet parsing
-  ts = MEAN_PROCESS + tw_rand_unif(&(lp->rng[ARRIVAL]));
-  s->node_queue_length[msg->source_direction][msg->source_dim]++;
-  
+    s->node_queue_length[msg->source_direction][msg->source_dim]++;
+  s->next_available_time += MEAN_PROCESS + tw_rand_unif(&(lp->rng[ARRIVAL]));
   e = tw_event_new(lp->gid, s->next_available_time - tw_now(lp), lp);
-  
-  s->next_available_time += ts;    
-  
   m = tw_event_data(e);
   m->type = PROCESS;
   
@@ -301,6 +296,8 @@ packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   int i;
   tw_event *e;
   nodes_message *m;
+  tw_lpid dst_lp;
+  tw_stime ts=0.0;
 
   bf->c3 = 1;
   // One packet leaves the queue
@@ -324,11 +321,30 @@ packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
     }
   else
     {
-      e = tw_event_new(lp->gid, MEAN_PROCESS, lp);
-      m = tw_event_data(e);
-      m->type = SEND;
+      bf->c3 = 1;
+      dimension_order_routing(s,msg,&dst_lp);
+      msg->source_dim = s->source_dim;
+      msg->source_direction = s->direction;
+
+      msg->saved_source_dim = s->source_dim;
+      msg->saved_direction = s->direction;
+      msg->saved_link_available_time[s->direction][s->source_dim] = 
+	s->next_link_available_time[s->direction][s->source_dim];
+
+      s->next_link_available_time[s->direction][s->source_dim] = 
+	max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp));
+      ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(&(lp->rng[SEND]));
+      s->next_link_available_time[s->direction][s->source_dim] += ts;      
       
-      // Carry on the message info
+      e = tw_event_new( dst_lp, 
+			s->next_link_available_time[s->direction][s->source_dim] 
+			- tw_now(lp), 
+			lp);
+
+      m = tw_event_data(e);
+      m->type = ARRIVAL;
+  
+   // Carry on the message info
       for( i = 0; i < N_dims; i++ )
 	m->dest[i] = msg->dest[i];
       m->dest_lp = msg->dest_lp;
@@ -339,15 +355,11 @@ packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       
       m->packet_ID = msg->packet_ID;	  
       m->travel_start_time = msg->travel_start_time;
-
       m->my_N_hop = msg->my_N_hop;
       m->my_N_queue = msg->my_N_queue;
       m->queueing_times = msg->queueing_times;
-
       tw_event_send(e);
-      
     }
-  
 }
 
 void 
@@ -439,6 +451,21 @@ event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   nodes_state saved_s;
   tw_rng_stream saved_rng;
 
+  if( g_tw_last_event_ts == tw_now(lp) )
+    {
+      printf("TIE EVENT: LAST: %ld, %d, %lf .....CURRENT: %ld, %d, %lf\n",
+	     g_tw_last_event_lpid,
+	     g_tw_last_event_type,
+	     g_tw_last_event_ts,
+	     lp->gid,
+	     msg->type,
+	     tw_now(lp) );
+    }
+
+  g_tw_last_event_lpid = lp->gid;
+  g_tw_last_event_type = msg->type;
+  g_tw_last_event_ts = tw_now(lp);
+
   if( g_test_rc )
     {
       memcpy( &saved_s, s, sizeof(nodes_state));
@@ -453,8 +480,8 @@ event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
     case ARRIVAL:
       packet_arrive(s,bf,msg,lp);
       break;
-    case SEND:
-      packet_send(s,bf,msg,lp);
+      // case SEND:
+      // packet_send(s,bf,msg,lp);
       break;
     case PROCESS:
       packet_process(s,bf,msg,lp);
@@ -598,8 +625,6 @@ rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       s->packet_counter--;
       tw_rand_reverse_unif(&(lp->rng[GENERATE]));
       tw_rand_reverse_unif(&(lp->rng[GENERATE]));
-      // GEN calls the SEND
-    case SEND:      
       s->next_link_available_time[s->direction][s->source_dim]=      
 	msg->saved_link_available_time[s->direction][s->source_dim];
       s->source_dim = msg->saved_source_dim;
@@ -626,6 +651,14 @@ rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 	  //event_queue_length -= msg->queue_length;
 	  queueing_times_sum -= msg->queueing_times;
 	}
+     else
+       {
+	 s->next_link_available_time[s->direction][s->source_dim]=      
+	   msg->saved_link_available_time[s->direction][s->source_dim];
+	 s->source_dim = msg->saved_source_dim;
+	 s->direction = msg->saved_direction;
+	 tw_rand_reverse_unif(&(lp->rng[SEND]));
+       }
       s->node_queue_length[msg->source_direction][msg->source_dim]++;
       s->N_wait_to_be_processed++;
       break;

@@ -110,4 +110,8 @@ static int	 nlp_per_pe;
 static int	 opt_mem = 3000;
 //static int       buffer_size = 10;
 
+tw_stime g_tw_last_event_ts = -1.0;
+tw_lpid  g_tw_last_event_lpid = 0;
+enum nodes_event_t g_tw_last_event_type=0;
+
 #endif
