@@ -87,7 +87,7 @@ torus_init(nodes_state * s, tw_lp * lp)
   /*
    * Start a GENERATE event on each LP
    */
-  ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+  ts = tw_rand_exponential(&(lp->rng[GENERATE]), MEAN_INTERVAL);
   e = tw_event_new(lp->gid, ts, lp);
   m = tw_event_data(e);
   m->type = GENERATE;
@@ -150,7 +150,7 @@ packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   s->next_available_time = max(s->next_available_time, tw_now(lp));
   
   // consider low noise on packet parsing
-  ts = MEAN_PROCESS + tw_rand_unif(lp->rng);
+  ts = MEAN_PROCESS + tw_rand_unif(&(lp->rng[ARRIVAL]));
   s->node_queue_length[msg->source_direction][msg->source_dim]++;
   
   e = tw_event_new(lp->gid, s->next_available_time - tw_now(lp), lp);
@@ -256,7 +256,7 @@ packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
     max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp));
   // consider 1% noise on packet header parsing
   //ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS;
-  ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(lp->rng);
+  ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(&(lp->rng[SEND]));
   
   //s->queue_length_sum += 
   //s->node_queue_length[msg->source_direction][msg->source_dim];
@@ -366,7 +366,7 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   msg->saved_direction = s->direction;
 
   // compute lp dest
-  dst_lp = tw_rand_integer(lp->rng,0,N_nodes-1);
+  dst_lp = tw_rand_integer(&(lp->rng[GENERATE]),0,N_nodes-1);
   if( dst_lp == lp->gid )
     dst_lp = (dst_lp + 1) % N_nodes;
 
@@ -383,7 +383,7 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   s->next_link_available_time[s->direction][s->source_dim] = 
     max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp));
 
-  ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(lp->rng);
+  ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(&(lp->rng[GENERATE]));
   s->next_link_available_time[s->direction][s->source_dim] += ts;      
 
   e = tw_event_new( dst_lp, 
@@ -422,7 +422,7 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   N_generated_storage[index]++;
 
   // schedule next GENERATE event
-  ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL);	
+  ts = tw_rand_exponential(&(lp->rng[GENERATE]), MEAN_INTERVAL);	
   //ts = MEAN_INTERVAL;
   e = tw_event_new(lp->gid, ts, lp);
   next_gen_m = tw_event_data(e);
@@ -596,19 +596,19 @@ rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
     case GENERATE:
       N_generated_storage[index]--;
       s->packet_counter--;
-      tw_rand_reverse_unif(lp->rng);
-      tw_rand_reverse_unif(lp->rng);
+      tw_rand_reverse_unif(&(lp->rng[GENERATE]));
+      tw_rand_reverse_unif(&(lp->rng[GENERATE]));
       // GEN calls the SEND
     case SEND:      
       s->next_link_available_time[s->direction][s->source_dim]=      
 	msg->saved_link_available_time[s->direction][s->source_dim];
       s->source_dim = msg->saved_source_dim;
       s->direction = msg->saved_direction;
-      tw_rand_reverse_unif(lp->rng);
+      tw_rand_reverse_unif(&(lp->rng[SEND]));
       break;
     case ARRIVAL:
       s->next_available_time = msg->saved_available_time;
-      tw_rand_reverse_unif(lp->rng);
+      tw_rand_reverse_unif(&(lp->rng[ARRIVAL]));
       msg->my_N_hop--;
       s->N_wait_to_be_processed--;
       msg->queueing_times -= s->N_wait_to_be_processed;
@@ -672,7 +672,8 @@ main(int argc, char **argv, char **env)
 	//MEAN_INTERVAL = N_nodes/ARRIVAL_RATE;
 	// MEAN_INTERVAL = 1000/ARRIVAL_RATE;
 	MEAN_INTERVAL = 10000.0;
-
+        g_tw_nRNG_per_lp = 4;
+        g_tw_rng_max = 4;
 	nlp_per_pe = N_nodes/tw_nnodes()/g_tw_npe;
 	g_tw_events_per_pe = nlp_per_pe/g_tw_npe + opt_mem;
 	tw_define_lps(nlp_per_pe, sizeof(nodes_message), 0);
