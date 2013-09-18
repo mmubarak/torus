@@ -149,8 +149,8 @@ packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   msg->saved_available_time = s->next_available_time;
   s->next_available_time = max(s->next_available_time, tw_now(lp));
   
-  // consider 1% noise on packet header parsing
-  ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS;
+  // consider low noise on packet parsing
+  ts = MEAN_PROCESS + tw_rand_unif(lp->rng);
   s->node_queue_length[msg->source_direction][msg->source_dim]++;
   
   e = tw_event_new(lp->gid, s->next_available_time - tw_now(lp), lp);
@@ -227,7 +227,7 @@ packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   tw_event *e=NULL;
   nodes_message *m=NULL;
 
-  ts = LINK_DELAY+PACKET_SIZE;//msg->transmission_time;
+  // ts = LINK_DELAY+PACKET_SIZE;//msg->transmission_time;
   
   /*
    * Routing in the torus, start from the first dimension
@@ -247,14 +247,6 @@ packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       printf("LP %ld Attempt to send packet to self at TS = %lf \n", lp->gid, tw_now(lp) );
     }
   
-  //////////////////////////////////////////
-  /*
-  e = tw_event_new(dst_lp, ts, lp);
-  m = tw_event_data(e);
-  m->type = ARRIVAL;
-  */
-  ////////////////////////////////////////////////////////////////////
-
   msg->saved_source_dim = s->source_dim;
   msg->saved_direction = s->direction;
   msg->saved_link_available_time[s->direction][s->source_dim] = 
@@ -264,8 +256,7 @@ packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
     max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp));
   // consider 1% noise on packet header parsing
   //ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS;
-  ts = tw_rand_exponential(lp->rng, (double)LINK_DELAY/1000)+
-    LINK_DELAY+PACKET_SIZE;
+  ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(lp->rng);
   
   //s->queue_length_sum += 
   //s->node_queue_length[msg->source_direction][msg->source_dim];
@@ -392,9 +383,7 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   s->next_link_available_time[s->direction][s->source_dim] = 
     max(s->next_link_available_time[s->direction][s->source_dim], tw_now(lp));
 
-  ts = tw_rand_exponential(lp->rng, (double)LINK_DELAY/1000)+
-    LINK_DELAY+PACKET_SIZE;
-  
+  ts = LINK_DELAY+PACKET_SIZE + tw_rand_unif(lp->rng);
   s->next_link_available_time[s->direction][s->source_dim] += ts;      
 
   e = tw_event_new( dst_lp, 
