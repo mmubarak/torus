@@ -139,8 +139,13 @@ struct nodes_message
   unsigned long long packet_ID;
   nodes_event_t	 type;
 
-  int saved_source_dim;
-  int saved_direction;
+  int saved_src_dim;
+  int saved_src_dir;
+
+  // For messages that don't get a slot in the buffer
+  int wait_dir;
+  int wait_dim;
+
   int dest[N_dims];
 
   tw_lpid dest_lp;
