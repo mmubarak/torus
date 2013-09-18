@@ -15,7 +15,7 @@
 //#define MEAN_INTERVAL 100000.0
 static double MEAN_INTERVAL;
 
-#define N_PACKETS_PER_NODE 20
+#define N_PACKETS_PER_NODE 8
 
 //#define ARRIVAL_RATE 0.05
 static double ARRIVAL_RATE = 0.0000001; 
@@ -24,9 +24,8 @@ static double ARRIVAL_RATE = 0.0000001;
 //static int       dim_length[] = {32,32};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
-static int       dim_length[] = {8,8,8,8,8,8,8,8};
-#define N_dims 8
-
+static int       dim_length[] = {4,4,4,4,4,4};
+#define N_dims 6
 
 typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_state nodes_state;
@@ -54,7 +53,6 @@ enum nodes_event_t
 struct nodes_state
 {
   unsigned long long packet_counter;
-
   tw_stime next_available_time;
   tw_stime next_link_available_time[2][N_dims];
 
