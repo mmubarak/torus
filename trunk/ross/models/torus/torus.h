@@ -57,7 +57,7 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 #define DEBUG 0
 
 #define NUM_ZONE_NODES 32
-#define WAITING_PACK_COUNT 800000
+#define WAITING_PACK_COUNT 1 << 18
 //static dim_length[] = {8,8,8};
 //static int       dim_length[] = {8, 8, 8};
 //static int       dim_length[] = {64,64,64,64};
@@ -157,7 +157,7 @@ struct nodes_message
   int packet_size;
   int count;
   short chunk_id;
-  short wait_loc;
+  int wait_loc;
   int wait_type;
 };
 
