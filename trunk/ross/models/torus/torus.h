@@ -17,16 +17,20 @@ static double MEAN_INTERVAL;
 
 #define N_PACKETS_PER_NODE 8
 
+// finite buffer
+#define BUFFER_SIZE 2
+
 //#define ARRIVAL_RATE 0.05
 static double ARRIVAL_RATE = 0.0000001; 
+static int buffer_size = 16;
 
 //static int       dim_length[] = {8,8,8,8,8,8};
 //static int       dim_length[] = {32,32};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
-static int       dim_length[] = {8,8,8};
-#define N_dims 3
+static int       dim_length[] = {4,4};
+#define N_dims 2
 
 typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_state nodes_state;
@@ -52,8 +56,10 @@ enum nodes_event_t
   ARRIVAL, 
   SEND,
   PROCESS,
-  REQ_ARRIVAL,
-  SEND_DATA
+  // finite buffer
+  REQ_SEND,
+  REQ_ARRIVE
+
 };
 
 struct nodes_state
@@ -91,11 +97,9 @@ struct nodes_message
   int source_dim;
   int source_direction;
   int next_stop;
-  
 
-  int source;
-  int priority;
-  int pre_dim;
+  // finite buffer
+  int exponential_counter;
 };
 
 tw_stime         average_travel_time = 0;

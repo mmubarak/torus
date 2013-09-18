@@ -87,7 +87,7 @@ torus_init(nodes_state * s, tw_lp * lp)
   /*
    * Start a GENERATE event on each LP
    */
-  ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+  ts = 4 + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
   //ts = MEAN_INTERVAL;
   e = tw_event_new(lp->gid, ts, lp);
   m = tw_event_data(e);
@@ -176,12 +176,11 @@ packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
     //ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS;
     ts = MEAN_PROCESS;
 
-
     //s->queue_length_sum += 
     //s->node_queue_length[msg->source_direction][msg->source_dim];
     s->node_queue_length[msg->source_direction][msg->source_dim]++;
 
-    e = tw_event_new(lp->gid, s->next_available_time - tw_now(lp), lp);
+    e = tw_event_new(lp->gid, s->next_available_time - tw_now(lp) + 4, lp);
 
     s->next_available_time += ts;    
 
@@ -462,6 +461,135 @@ packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   tw_event_send(e);
 }
 
+void
+req_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+{
+  int i;
+  tw_lpid dst_lp;
+  tw_stime ts;
+  tw_event *e;
+  nodes_message *m;
+
+  ts = msg->exponential_counter;
+  
+  /*
+   * Routing in the torus, start from the first dimension
+   */
+  
+  if (lp->gid !=  msg->dest_lp )  
+    {
+      bf->c3 = 1;
+      dimension_order_routing(s,msg,&dst_lp);
+     }
+  else
+    {
+      bf->c3 = 0;
+      dst_lp = lp->gid;
+    }  
+
+  e = tw_event_new( dst_lp, ts + 4, lp);
+
+  m = tw_event_data(e);
+  m->type = REQ_ARRIVE;
+  
+  // Carry on the message info
+  for( i = 0; i < N_dims; i++ )
+    m->dest[i] = msg->dest[i];
+  m->dest_lp = msg->dest_lp;
+  m->transmission_time = msg->transmission_time;
+  
+  m->source_dim = msg->source_dim;
+  m->source_direction = msg->source_direction;
+  
+  m->packet_ID = msg->packet_ID;	  
+  m->travel_start_time = msg->travel_start_time;
+
+  m->my_N_hop = msg->my_N_hop;
+  m->my_N_queue = msg->my_N_queue;
+  m->queueing_times = msg->queueing_times;
+
+  m->exponential_counter = msg->exponential_counter;
+  m->src_lp = lp->gid;
+
+  tw_event_send(e);
+}
+
+void
+req_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+{
+  int i;
+  tw_stime ts;
+  tw_event *e;
+  nodes_message *m;
+
+  printf("queue length is %d\n",s->node_queue_length[msg->source_direction][msg->source_dim]);
+
+  if ( s->node_queue_length[msg->source_direction][msg->source_dim] >= buffer_size )
+    {
+      printf("going back\n");
+
+      bf->c1 = 0;
+      ts = msg->exponential_counter;
+      e = tw_event_new( msg->src_lp, ts+4, lp);
+
+      m = tw_event_data(e);
+      m->type = REQ_SEND;
+  
+      // Carry on the message info
+      for( i = 0; i < N_dims; i++ )
+	m->dest[i] = msg->dest[i];
+      m->dest_lp = msg->dest_lp;
+      m->transmission_time = msg->transmission_time;
+  
+      m->source_dim = msg->source_dim;
+      m->source_direction = msg->source_direction;
+  
+      m->packet_ID = msg->packet_ID;	  
+      m->travel_start_time = msg->travel_start_time;
+
+      m->my_N_hop = msg->my_N_hop;
+      m->my_N_queue = msg->my_N_queue;
+      m->queueing_times = msg->queueing_times;
+
+      m->exponential_counter = 2 * msg->exponential_counter;
+  
+      tw_event_send(e);
+
+    }
+  else
+    {
+      bf->c1 = 1;
+      ts = msg->exponential_counter;
+      e = tw_event_new( msg->src_lp, ts+4, lp);
+
+      m = tw_event_data(e);
+      m->type = SEND;
+  
+      // Carry on the message info
+      for( i = 0; i < N_dims; i++ )
+	m->dest[i] = msg->dest[i];
+      m->dest_lp = msg->dest_lp;
+      m->transmission_time = msg->transmission_time;
+  
+      m->source_dim = msg->source_dim;
+      m->source_direction = msg->source_direction;
+  
+      m->packet_ID = msg->packet_ID;	  
+      m->travel_start_time = msg->travel_start_time;
+
+      m->my_N_hop = msg->my_N_hop;
+      m->my_N_queue = msg->my_N_queue;
+      m->queueing_times = msg->queueing_times;
+
+      // exponential back up reset
+      m->exponential_counter = 4;
+  
+      tw_event_send(e);
+
+    }  
+
+}
+
 
 void
 packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
@@ -492,9 +620,11 @@ packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
     }
   else
     {
-      e = tw_event_new(lp->gid, MEAN_PROCESS, lp);
+      e = tw_event_new(lp->gid, MEAN_PROCESS+4, lp);
       m = tw_event_data(e);
-      m->type = SEND;
+      
+      m->type = REQ_SEND;
+      //m->type = SEND;
       
       // Carry on the message info
       for( i = 0; i < N_dims; i++ )
@@ -512,7 +642,7 @@ packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       m->my_N_queue = msg->my_N_queue;
       m->queueing_times = msg->queueing_times;
 
-      m->priority = msg->priority;
+      m->src_lp = lp->gid;
 
       tw_event_send(e);
       
@@ -534,12 +664,15 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 /*     {return;} */
 
   // Send the packet out
-  e = tw_event_new(lp->gid, 0, lp);
+  e = tw_event_new(lp->gid, 4, lp);
   m = tw_event_data(e);
-  m->type = SEND;
+  // finite buffer
+  //m->type = SEND;
+  m->type = REQ_SEND;
+  m->exponential_counter = 4;
+
   m->transmission_time = PACKET_SIZE;
   
-  m->priority = 0;
 
   // Set up random destination
   dst_lp = tw_rand_integer(lp->rng,0,N_nodes-1);
@@ -577,8 +710,8 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   N_generated_storage[index]++;
 
   // schedule next GENERATE event
-  ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL);
-  // ts = MEAN_INTERVAL;
+  ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL) + 4;	
+  //ts = MEAN_INTERVAL;
   e = tw_event_new(lp->gid, ts, lp);
   m = tw_event_data(e);
   m->type = GENERATE;
@@ -607,13 +740,13 @@ event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
     case PROCESS:
       packet_process(s,bf,msg,lp);
       break;
-    case REQ_ARRIVAL:
-      request_arrive(s,bf,msg,lp);
+      // finite buffer
+    case REQ_SEND:
+      req_send(s,bf,msg,lp);
       break;
-    case SEND_DATA:
-      data_send(s,bf,msg,lp);
+    case REQ_ARRIVE:
+      req_arrive(s,bf,msg,lp);
       break;
-
     }
 }
 
@@ -661,6 +794,10 @@ rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       s->node_queue_length[msg->source_direction][msg->source_dim]++;
       s->N_wait_to_be_processed++;
       break;
+    case REQ_SEND:
+      break;
+    case REQ_ARRIVE:
+      break;
     }
 }
 
@@ -686,6 +823,7 @@ const tw_optdef app_opt [] =
 {
 	TWOPT_GROUP("Nodes Model"),
 	TWOPT_UINT("memory", opt_mem, "optimistic memory"),
+	TWOPT_UINT("bfsize", buffer_size, "buffer size"),
 	TWOPT_STIME("arrive_rate", ARRIVAL_RATE, "packet arrive rate"),
 	TWOPT_END()
 };
@@ -701,9 +839,9 @@ main(int argc, char **argv, char **env)
 	for (i=0; i<N_dims; i++)
 	  N_nodes*=dim_length[i];
 
-	//MEAN_INTERVAL = N_nodes/ARRIVAL_RATE;
-	// MEAN_INTERVAL = 1000/ARRIVAL_RATE;
-        MEAN_INTERVAL = 10000.0;
+	MEAN_INTERVAL = N_nodes/ARRIVAL_RATE;
+	//MEAN_INTERVAL = 1000/ARRIVAL_RATE;
+        //MEAN_INTERVAL = 1000.0;
 
 	nlp_per_pe = N_nodes/tw_nnodes()/g_tw_npe;
 	g_tw_events_per_pe = nlp_per_pe/g_tw_npe + opt_mem;
