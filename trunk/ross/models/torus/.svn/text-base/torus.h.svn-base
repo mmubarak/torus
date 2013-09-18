@@ -24,7 +24,7 @@
 #define PING_PONG 1 /*Set 1 for a ping pong test, 0 for a bisection test */
 
 // finite buffer
-#define N_dims 2
+#define N_dims 3
 #define TRACK 3136
 #define N_COLLECT_POINTS 20
 
@@ -32,7 +32,7 @@
 #define DEBUG 1
 
 //static int       dim_length[] = {4,4,4,4,2};
-static int       dim_length[] = {8,8};
+static int       dim_length[] = {8,8,8};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
