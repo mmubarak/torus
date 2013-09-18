@@ -114,6 +114,9 @@ torus_init( nodes_state * s,
     
     for (j = 0; j < WAITING_PACK_COUNT - 1; j++) {
     s->waiting_list[j].next = &s->waiting_list[j + 1];
+    s->waiting_list[j].dim = -1;
+    s->waiting_list[j].dir = -1;
+    s->waiting_list[j].packet = NULL; 
     }
     
     s->waiting_list[j].next = NULL;
@@ -235,6 +238,8 @@ packet_generate( nodes_state * s,
     dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );
     ts = 0.001 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/10000);
 
+  if(tmp_dir == -1 || tmp_dim == -1)
+    printf("\n LP %d dest LP %d dim %d dir %d ", (int)lp->gid, (int)msg->dest_lp, tmp_dim, tmp_dir);
     for(j = 0; j < num_chunks; j++)
     { 
        e_h = tw_event_new( lp->gid, j + ts, lp );
@@ -259,11 +264,12 @@ packet_generate( nodes_state * s,
            dim_N[ i + 1 ] = ( dim_N[ i ] - m->dest[ i ] ) / dim_length[ i ];
         }
 
-       if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] >= 0)
-        {
-//       For reverse computation 
+//       For reverse computation  17-05 placed these two lindes out of the if condition below
+
          msg->source_dim = tmp_dim;
          msg->source_direction = tmp_dir;
+       if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] > 0)
+        {
 
 	 m->my_N_hop = 0;
 	 m->wait_type = -1;
@@ -291,7 +297,7 @@ packet_generate( nodes_state * s,
        {
 #if DEBUG
 //if(lp->gid == TRACK_LP)
-//   printf("\n Packet queued in line, buffer space %d ", s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ]);
+//   printf("\n %d Packet queued in line, buffer space %d ", (int)lp->gid, s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ]);
 #endif
             m->wait_type = GENERATE;
 	    m->type = WAIT;
@@ -314,7 +320,7 @@ credit_send( nodes_state * s,
     nodes_message *m;
     tw_stime ts;
 //    tw_stime ts;
-    ts =  credit_delay;
+    ts =  tw_rand_exponential(lp->rng, credit_delay/1000) + credit_delay;
   
     //buf_e = tw_event_new( lp->gid, ts, lp );
  //   s->next_credit_available_time[2 * msg->source_dim + msg->source_direction][0] = max(s->next_credit_available_time[2 * msg->source_dim + msg->source_direction][0], tw_now(lp) );
@@ -348,6 +354,7 @@ update_waiting_list( nodes_state * s,
    s->waiting_list[loc].packet = msg;
 
    s->wait_count++;
+//   printf("\n Inserted message, wait count %d dim %d dir %d type %d ", s->wait_count, msg->source_dim, msg->source_direction, msg->wait_type);
 }
 // send a packet from one torus node to another torus node
 // A packet can be up to 256 bytes on BG/L and BG/P and up to 512 bytes on BG/Q
@@ -372,8 +379,12 @@ packet_send( nodes_state * s,
     // For reverse computation
     bf->c3 = 1;
     bf->c1 = 1;
+    bf->c2 = 1;
 
 //   If the message is coming from waiting queue then it will have everything set     
+//    if(msg->wait_type == GENERATE)
+//	printf("\n Sending waiting message!");
+
     if( msg->next_stop == -1 )  
      {
  	 dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );     
@@ -393,10 +404,8 @@ packet_send( nodes_state * s,
          tokens_min = PACKET_SIZE/TOKEN_SIZE;
       }
 
-    msg->saved_direction = tmp_dir;
-    msg->saved_source_dim = tmp_dim;
 
-    if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] <= tokens_min )
+    if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] <= 0 )
     {
          // re-schedule the message in the future
 	 ts = 0.001 + tw_rand_exponential( lp->rng, MEAN_INTERVAL/10000);
@@ -410,11 +419,20 @@ packet_send( nodes_state * s,
          m->dest_lp = msg->dest_lp;
          m->count = msg->count;
          m->source_direction = tmp_dir;
+	 m->packet_ID = msg->packet_ID;
+	 m->sender_lp = msg->sender_lp;
+
+	 for (i=0; i < N_dims; i++)
+           m->dest[i] = msg->dest[i];
+
+	 tw_event_send(e);
          bf->c3 = 0;
 
          return;
      }
 
+    msg->saved_direction = tmp_dir;
+    msg->saved_source_dim = tmp_dim;
     ts = tw_rand_exponential( lp->rng, ( double )head_delay/10000 )+
                               head_delay;
 
@@ -422,12 +440,15 @@ packet_send( nodes_state * s,
     msg->saved_available_time = s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0];
 
     s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] = max( s->next_link_available_time[ tmp_dir + ( tmp_dim * 2 )][0], tw_now(lp) );
-    s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] += ROUTER_DELAY;
+    s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] += ts;
     
-    e = tw_event_new( dst_lp, s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] + ts - tw_now(lp), lp );
+    e = tw_event_new( dst_lp, s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] - tw_now(lp), lp );
     
     if(msg->sender_lp != -1)
+      {
+	  bf->c2 = 0;	
           credit_send( s, bf, lp, msg );
+      }
        
    if( msg->packet_ID == TRACK )
       printf("\n (%lf) Scheduling for next hop after %f ", tw_now( lp ), head_delay);
@@ -478,8 +499,8 @@ waiting_packet_free(nodes_state * s, int loc)
 	s->waiting_list[i].dir = s->waiting_list[i + 1].dir;
 	s->waiting_list[i].packet = s->waiting_list[i + 1].packet;
     }
-  s->waiting_list[max_count].dim = 0;
-  s->waiting_list[max_count].dir = 0;
+  s->waiting_list[max_count].dim = -1;
+  s->waiting_list[max_count].dir = -1;
   s->waiting_list[max_count].packet = NULL; 
   
   s->wait_count--; 
@@ -527,31 +548,32 @@ schedule_waiting_msg( nodes_state * s,
   //int i;
   //for(i = 0; i < s->wait_count; i++)
   waiting_packet * current = s->head;
-  int loc=0;
+  int loc=s->wait_count, j=0;
 
-  while(current != NULL)
+  for(j = 0; j < loc; j++)
    {
-    if( current->dim == msg->source_dim && current->dir == msg->source_direction)
+    if( s->waiting_list[j].dim == msg->source_dim && s->waiting_list[j].dir == msg->source_direction)
      {
         bf->c3=0;
         e_h = tw_event_new( lp->gid, 0.001, lp );
         m = tw_event_data( e_h );
-	copyData(current->packet, m);
+     	copyData(s->waiting_list[j].packet, m);
         
 //        For reverse computation, also copy data to the msg 
-	copyData(current->packet, msg);
-        msg->wait_loc = loc;
+   	copyData(s->waiting_list[j].packet, msg);
+        msg->wait_loc = j;
 
 	m->type = SEND;
+//	printf("\n Source dim %d Source dir %d loc %d wait type %d", current->dim, current->dir, loc, current->packet->wait_type);
+//        printf("\n Packet ID %d ", current->packet->packet_ID);
         tw_event_send(e_h);
-
-        waiting_packet_free(s, loc);
+        waiting_packet_free(s, j);
         return;
     }
-   else
-    current = current->next;
+   //else
+   // current = current->next;
 
-   loc++;
+  // loc++;
   }
 }
 /*Processes the packet after it arrives on the from the neighboring torus node */
@@ -648,7 +670,6 @@ void mpi_msg_send(mpi_process * p,
 	return;
      }
 
-    bf->c1 = 1; 
     bf->c3 = 1;
     bf->c2 = 1;
 
@@ -675,9 +696,7 @@ void mpi_msg_send(mpi_process * p,
 	
 		    if( final_dst == lp->gid )
 		      {
-			bf->c1 = 0;
-
-                        final_dst = tw_rand_integer( lp->rng, N_nodes, 2 * N_nodes - 1);
+                        final_dst = N_nodes + ((lp->gid + 1) % N_nodes);
 		      }
 		}
 	  break;
@@ -688,12 +707,13 @@ void mpi_msg_send(mpi_process * p,
 
   		    final_dst = N_nodes + ((p->zone_id + 1) % num_zones * NUM_ZONE_NODES) + tw_rand_integer( lp->rng, 0, NUM_ZONE_NODES-1);
 		
-		    if( final_dst == lp->gid )
+//		     Commented out on May 17, destination is in next zone so there is not a possibility of lp id being the same as destination
+		    /*if( final_dst == lp->gid )
                       {
                         bf->c1 = 0;
 
-                        final_dst = N_nodes + ((p->zone_id + 1) % num_zones * NUM_ZONE_NODES) + tw_rand_integer( lp->rng, 0, NUM_ZONE_NODES-1);
-                      }
+                        final_dst = N_nodes + ((lp->gid + 1) % N_nodes);
+                      }*/
 		}
 	 break;
 
@@ -742,9 +762,6 @@ void mpi_msg_send(mpi_process * p,
 	     m = tw_event_data( e );
 	     m->type = GENERATE;
              m->packet_ID = packet_offset * ( lp->gid * num_mpi_msgs * num_packets ) + p->message_counter;
-
-	     if(m->packet_ID < 0)
-		printf("\n INVALID PACKET ID %lld ", m->packet_ID);
 
              p->message_counter++;
 	     m->count = i;
@@ -839,8 +856,9 @@ void mpi_event_rc_handler( mpi_process * p,
 		  if(!bf->c3)
 		       tw_rand_reverse_unif(lp->rng);
 
-		  if(!bf->c1)
-		       tw_rand_reverse_unif(lp->rng);
+//		   Commented out on May 17, add 1 in the lp id instead of re-running random number generator
+		  //if(!bf->c1)
+		    //   tw_rand_reverse_unif(lp->rng);
 
 		    int i; 
 		    for( i=0; i < num_packets; i++ )
@@ -939,19 +957,21 @@ node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 	case ARRIVAL:
 		   {
 		     msg->my_N_hop--;
+		     tw_rand_reverse_unif(lp->rng);
 		   }
 	break;	
 
 	case SEND:
 		 {
+	            tw_rand_reverse_unif(lp->rng);
 		    if(!bf->c3)
 		     {
-	                tw_rand_reverse_unif(lp->rng);
 			return;
 		     }
 		     else
 		      {
-	                tw_rand_reverse_unif(lp->rng);
+			if(!bf->c2)
+   			   tw_rand_reverse_unif(lp->rng);
                         int next_dim = msg->saved_source_dim;
 			int next_dir = msg->saved_direction;
 
@@ -971,14 +991,15 @@ node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 
         case WAIT:
 		{
-		   printf("\n Wait reverse handler called ");
-		   if(s->wait_count <= 0)
-		    	printf("\n Trying to decrement a zero valued variable %d ", s->wait_count);
+		   //printf("\n Wait reverse handler called ");
+//		    Gave this error message with roll backs, probably event ties causing this error message?
+		   //if(s->wait_count <= 0)
+		    //	printf("\n Trying to decrement a zero valued variable %d ", s->wait_count);
 
 		   s->wait_count--;
 		   int loc = s->wait_count;
-		   s->waiting_list[loc].dim = 0;
-		   s->waiting_list[loc].dir = 0;
+		   s->waiting_list[loc].dim = -1;
+		   s->waiting_list[loc].dir = -1;
 		   s->waiting_list[loc].packet = NULL;
 		}
         break;
@@ -988,7 +1009,7 @@ node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 		  s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]--;
 		  if(!bf->c3)
 		  {
-		  printf("\n credit reverse handler called %d %d %d %d ", msg->source_direction, msg->source_dim, s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ], s->wait_count);
+		  //printf("\n credit reverse handler called %d %d %d %d ", msg->source_direction, msg->source_dim, s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ], s->wait_count);
 		     int loc = msg->wait_loc, i;
                      int max_count = s->wait_count;
 		     if(s->wait_count == WAITING_PACK_COUNT)
@@ -1007,52 +1028,6 @@ node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
               }
        break;
      }
-}
-void 
-mpi_proc_rc_handler(mpi_process * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
-{
-  int i = 0;
-  switch( msg->type )
-	{
-	  case MPI_SEND:
-		  {
-		    if(!bf->c2)
-			return;
-
-		    if(!bf->c3)
-			tw_rand_reverse_unif(lp->rng);
-
-		    if(!bf->c1)
-			tw_rand_reverse_unif(lp->rng);
-
-		    for( i=0; i < num_packets; i++ )
-		     {
-			tw_rand_reverse_unif(lp->rng);
-			s->available_time = msg->saved_available_time;
-
-			s->message_counter--;
-		    }
-		    tw_rand_reverse_unif(lp->rng);
-		    s->message_counter--;
-		  }
-	  break;
-
-	  case MPI_RECV:
-		 {
-		   N_finished_msgs--;
-		   N_finished_packets--;
-
-		   int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
-		   N_finished_storage[index]--;
-		   
-		   total_time -= tw_now( lp ) - msg->travel_start_time;
-		   total_hops -= msg->my_N_hop;
-
-		   if(!bf->c3)
-			max_latency = msg->saved_available_time;
-		 }
-	  break;
-	}
 }
 
 void
@@ -1090,7 +1065,7 @@ tw_lptype nodes_lps[] =
 	{
                (init_f) mpi_init,
 	       (event_f) mpi_event_handler,
-	       (revent_f) mpi_proc_rc_handler,
+	       (revent_f) mpi_event_rc_handler,
 	       (final_f) final,
 	       (map_f) mapping,
 	       sizeof(mpi_process),

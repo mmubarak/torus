@@ -43,7 +43,7 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 #endif
 
 //#define MPI_MESSAGE_LIMIT 50 /*Number of messages to be injected by each node */
-#define NUM_VC 2
+#define NUM_VC 1
 #define CHUNK_SIZE 32
 //#define PING_PONG 0 /*Set 1 for a ping pong test, 0 for a bisection test */
 
@@ -59,8 +59,7 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
 
 #define NUM_ROWS 32
 #define NUM_COLS 32
-#define WAITING_PACK_COUNT 50000
-#define ROUTER_DELAY 16.0
+#define WAITING_PACK_COUNT 100000
 //static dim_length[] = {8,8,8};
 //static int       dim_length[] = {8, 8, 8};
 //static int       dim_length[] = {64,64,64,64};
@@ -189,7 +188,7 @@ static int	 opt_mem = 3000;
 static long mpi_message_size = 32;
 static int num_mpi_msgs = 50;
 //static int distance = 1;
-static int mem_factor = 64;
+static int mem_factor = 128;
 static double MEAN_INTERVAL=10.0;
 static int TRAFFIC = TRANSPOSE;
 //static float MEAN_INTERVAL=10.0;
