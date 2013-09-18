@@ -6,3 +6,4 @@ torus.c torus.h)
 ADD_EXECUTABLE(torus ${torus_srcs})
 
 TARGET_LINK_LIBRARIES(torus ROSS m)
+set(CMAKE_BUILD_TYPE Debug)

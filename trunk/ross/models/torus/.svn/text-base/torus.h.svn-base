@@ -25,7 +25,7 @@ static double ARRIVAL_RATE = 0.0000001;
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
-static int       dim_length[] = {4,4,4};
+static int       dim_length[] = {8,8,8};
 #define N_dims 3
 
 typedef enum nodes_event_t nodes_event_t;
@@ -48,10 +48,12 @@ static int       N_nodes = 1;
 
 enum nodes_event_t
 {
-  GENERATE,
+  GENERATE = 1,
   ARRIVAL, 
   SEND,
-  PROCESS
+  PROCESS,
+  REQ_ARRIVAL,
+  SEND_DATA
 };
 
 struct nodes_state
@@ -67,6 +69,7 @@ struct nodes_state
   int source_dim;
   int direction;
   int generate_counter;
+  int buffer_size;
 };
 
 struct nodes_message
@@ -88,6 +91,11 @@ struct nodes_message
   int source_dim;
   int source_direction;
   int next_stop;
+  
+
+  int source;
+  int priority;
+  int pre_dim;
 };
 
 tw_stime         average_travel_time = 0;
