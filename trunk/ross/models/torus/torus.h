@@ -7,22 +7,25 @@
 // assume 475MB/s bandwidth, it takes 64 ns to transfer 32Byte
 // assume average packet size 32B, exponential dirstribution
 // assume average processing time 1 us = 1000 ns, exponential dirstribution 
-#define PACKET_SIZE 32
-#define MEAN_PROCESS 250.0
-#define MEAN_INTERVAL 2
-#define LINK_DELAY 96.0
-#define NUM_VC 4
-#define NUM_BUF_SLOTS 32
+//#define PACKET_SIZE 256
+// processing time of message at the MPI level-- from DCMF paper
+#define MEAN_PROCESS 1500.0
+#define MEAN_INTERVAL 1
+#define MESSAGE_SIZE 512
+#define MESSAGE_LIMIT 5
+#define BANDWIDTH 0.374
+#define OVERHEADS 0.0
+#define NUM_VC 2
+#define NUM_BUF_SLOTS 1024/MESSAGE_SIZE
+#define PING_PONG 1
 
 // finite buffer
 #define N_dims 3
 #define TRACK 20
 #define N_COLLECT_POINTS 20
-#define QUEUE_SIZE 100
 
-static int buffer_size = 16;
 //static int       dim_length[] = {4,4,4,4,2};
-static int       dim_length[] = {4,4,4};
+static int       dim_length[] = {8,8,8};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
@@ -55,6 +58,7 @@ enum nodes_event_t
 struct mpi_process
 {
  unsigned long long message_counter;
+ int message_size;
 };
 
 struct nodes_state
@@ -97,6 +101,7 @@ struct nodes_message
   int source_dim;
   int source_direction;
   int next_stop;
+  int packet_size;
 };
 
 struct waiting_list
@@ -135,4 +140,7 @@ tw_lpid  g_tw_last_event_lpid = 0;
 enum nodes_event_t g_tw_last_event_type=0;
 FILE *g_event_trace_file=NULL;
 int g_enable_event_trace=1;
+
+float link_delay=0.0;
+float credit_delay = 0.0;
 #endif
