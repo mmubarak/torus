@@ -13,11 +13,6 @@ torus_setup(nodes_state * s, tw_lp * lp)
   int dim_N[N_dims+1];
   dim_N[0]=(int)lp->gid;
 
-  s->waiting_messages=(nodes_message**)malloc(100*sizeof(nodes_message*));
-  for(i=0; i<100; i++)
-    s->waiting_messages[i] = (nodes_message*)sizeof(nodes_message);
-
-  s->wait_indx=0;
   // calculate my torus co-ordinates
   for (i=0; i<N_dims; i++)
     {
@@ -25,15 +20,6 @@ torus_setup(nodes_state * s, tw_lp * lp)
       dim_N[i+1] = ( dim_N[i] - s->dim_position[i] )/dim_length[i];
 
       half_length[i] = dim_length[i]/2;
-    }
-
-  for (i=0; i<N_dims; i++)
-    {
-     for(j=0; j<NUM_VC; j++)
-      {	     
-      	    s->node_queue_length[0+(i*2)][j] = 0;
-            s->node_queue_length[1+(i*2)][j] = 0;
-      }    
     }
 
   int factor[N_dims];
@@ -49,7 +35,6 @@ torus_setup(nodes_state * s, tw_lp * lp)
   for (i=0; i<N_dims; i++)
     temp_dim_pos[i] = s->dim_position[i];
 
-  //printf("\n LP %d dimension: %d %d %d %d %d", (int)lp->gid, s->dim_position[0],s->dim_position[1], s->dim_position[2], s->dim_position[3], s->dim_position[4]);
   // calculate minus neighbour's lpID
   for (j=0; j<N_dims; j++)
     {
@@ -57,7 +42,6 @@ torus_setup(nodes_state * s, tw_lp * lp)
       s->neighbour_minus_lpID[j]=0;
       for (i=0; i<N_dims; i++)
         s->neighbour_minus_lpID[j]+=factor[i]*temp_dim_pos[i];
-      //printf(" minus neighbor LP ID is %d ", s->neighbour_minus_lpID[j]);
       temp_dim_pos[j] = s->dim_position[j];
     }
 
@@ -68,9 +52,12 @@ torus_setup(nodes_state * s, tw_lp * lp)
       s->neighbour_plus_lpID[j]=0;
       for (i=0; i<N_dims; i++)
         s->neighbour_plus_lpID[j]+=factor[i]*temp_dim_pos[i];
-      //printf(" plus neighbor LP ID is %d ", s->neighbour_plus_lpID[j]);
       temp_dim_pos[j] = s->dim_position[j];
     }
+
+  // initialize each node's waiting list
+     s->root = NULL;
+  
   // record LP time
   s->packet_counter = 0;
   s->next_available_time = 0;
@@ -85,15 +72,9 @@ torus_init(nodes_state * s, tw_lp * lp)
   tw_stime ts;
   nodes_message *m;
 
-  /*
-   * Set up the initial state for each LP (node)
-   * according to the number of dimensions
-   */
   torus_setup(s, lp);
 
-  /*
-   * Start a GENERATE event on each LP
-   */
+  //Start a GENERATE event on each LP
   ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL);
   e = tw_event_new(lp->gid, ts, lp);
   m = tw_event_data(e);
@@ -101,7 +82,6 @@ torus_init(nodes_state * s, tw_lp * lp)
 
   m->dest_lp = lp->gid;
   tw_event_send(e);
-
 }
 
 
@@ -138,25 +118,14 @@ packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       printf("\n");
     }
 
-  // Packet arrives and accumulate # queued
-  msg->queueing_times += s->N_wait_to_be_processed;
   // One more arrives and wait to be processed
   s->N_wait_to_be_processed++;
 
   msg->my_N_hop++;
-  msg->my_N_queue+=s->node_queue_length[msg->source_direction][msg->source_dim];
-    /*
-     * If no packet is queueing, router is available now
-     * if there are some packets queueing, then available time > tw_now(lp)
-     * add one more MEAN_PROCESS to available time
-     */
-
   msg->saved_available_time = s->next_available_time;
   s->next_available_time = max(s->next_available_time, tw_now(lp));
     // consider 1% noise on packet header parsing
   ts = tw_rand_exponential(lp->rng, (double)MEAN_PROCESS/1000)+MEAN_PROCESS;
-
-  s->node_queue_length[msg->source_direction][msg->source_dim]++;
 
   e = tw_event_new(lp->gid, s->next_available_time - tw_now(lp), lp);
 
@@ -180,10 +149,7 @@ packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
    m->travel_start_time = msg->travel_start_time;
 
    m->my_N_hop = msg->my_N_hop;
-   m->my_N_queue = msg->my_N_queue;
-   m->queueing_times = msg->queueing_times;
-    
-    tw_event_send(e);
+   tw_event_send(e);
 }
 
 void 
@@ -223,7 +189,7 @@ dimension_order_routing(nodes_state * s,nodes_message * msg, tw_lpid * dst_lp)
     }
 }
 
-void credit_send(nodes_state * s, tw_bf * bf, tw_lp * lp, nodes_message * msg, int saved_dim, int saved_dir)
+void credit_send(nodes_state * s, tw_bf * bf, tw_lp * lp, nodes_message * msg)
 {
   tw_event * buf_e;
   nodes_message *m;
@@ -231,103 +197,98 @@ void credit_send(nodes_state * s, tw_bf * bf, tw_lp * lp, nodes_message * msg, i
 
   ts = LINK_DELAY;
   
-  s->next_link_available_time[saved_dir+(saved_dim*2)][msg->saved_vc] =
-	       max(s->next_link_available_time[saved_dir+(saved_dim*2)][msg->saved_vc], tw_now(lp));
+//  s->next_link_available_time[msg->source_direction+(msg->source_dim*2)][msg->saved_vc] =
+//	       max(s->next_link_available_time[msg->source_direction+(msg->source_dim*2)][msg->saved_vc], tw_now(lp));
   
-  s->next_link_available_time[saved_dir+(saved_dim*2)][msg->saved_vc] += ts;
+//  s->next_link_available_time[msg->source_direction+(msg->source_dim*2)][msg->saved_vc] += ts;
 
   buf_e = tw_event_new(msg->sender_lp, ts, lp);
   
   m = tw_event_data(buf_e);
   m->saved_vc = msg->saved_vc;
-  m->source_direction=saved_dir;
-  m->source_dim = saved_dim;
+  m->source_direction=msg->source_direction;
+  m->source_dim = msg->source_dim;
 
   m->type=CREDIT;
   tw_event_send(buf_e);
 }
 
-void
-packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+void update_waiting_list(nodes_state * s, nodes_message * msg, tw_lp * lp, int dir, int dim, int vc)
+{
+   waiting_list * tmp = malloc(sizeof(waiting_list));
+   waiting_list * tmp2 = malloc(sizeof(waiting_list));
+
+   tmp->dim = dim;
+   tmp->dir = dir;
+   tmp->packet = malloc(sizeof(nodes_message));
+   tmp->packet = msg;
+   tmp->vc = vc;
+   tmp->next = NULL;
+
+   if(s->root==NULL)
+   {
+      // Insert at the root
+      s->root = tmp;
+   }
+  else
+   {
+     tmp2 = s->root;
+     // Traverse down to the end of the list
+     while(tmp2->next != NULL)
+      tmp2 = tmp2->next;
+     
+     // Append at the end of the list
+      tmp2->next = tmp;        
+   }
+}
+
+void packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
   int i;
   tw_lpid dst_lp;
   tw_stime ts;
   tw_event *e;
   nodes_message *m;
-  /*
-   * Routing in the torus, start from the first dimension
-   */
-  int saved_dir, saved_dim;
-  saved_dim = msg->source_dim;
-  saved_dir = msg->source_direction;
-
+  
+   // Routing in the torus, start from the first dimension
   if (lp->gid !=  msg->dest_lp )  
-    {
-      bf->c3 = 1;
       dimension_order_routing(s,msg,&dst_lp);
-      msg->source_dim = s->source_dim;
-      msg->source_direction = s->direction;
-    }
   else
-    {
-      bf->c3 = 0;
       dst_lp = lp->gid;
-    }
  
-  bf->c2=1;
-
   int vc=0;
   if(lp->gid > dst_lp)
     vc=1;
-
-  if(s->buffer[s->direction+(s->source_dim*2)][vc]<NUM_BUF_SLOTS)
+  
+ if(s->buffer[s->direction+(s->source_dim*2)][vc]<NUM_BUF_SLOTS)
   {
   if(msg->saved_vc != -1) 	  
-    credit_send(s, bf, lp, msg, saved_dim, saved_dir);
+    credit_send(s, bf, lp, msg);
 
   if(msg->packet_ID == TRACK)
-	  printf("\n (%lf) [LP %d] Packet %lld being sent to destination %lld source dim %d source dir %d ", 
-			  tw_now(lp), (int)lp->gid, msg->packet_ID,dst_lp, msg->source_dim, msg->source_direction);
-   ts = LINK_DELAY+PACKET_SIZE;//msg->transmission_time;
+    printf("\n (%lf) [LP %d] Packet %lld being sent to destination %lld source dim %d source dir %d ", 
+			  tw_now(lp), (int)lp->gid, msg->packet_ID,dst_lp, s->source_dim, s->direction);
+
+   s->buffer[s->direction+(s->source_dim*2)][vc]++;
 
    s->next_link_available_time[s->direction+(s->source_dim*2)][vc] = 
      max(s->next_link_available_time[s->direction+(s->source_dim*2)][vc], tw_now(lp));
 
-   s->buffer[s->direction+(s->source_dim*2)][vc]++;
-   // consider 1% noise on packet header parsing
    ts = tw_rand_exponential(lp->rng, (double)LINK_DELAY/1000)+
      LINK_DELAY+PACKET_SIZE;
   
     s->next_link_available_time[s->direction+(2*s->source_dim)][vc] += ts;      
 
-    e = tw_event_new( dst_lp, 
-		    s->next_link_available_time[s->direction+(2*s->source_dim)][vc] 
-		    - tw_now(lp), 
-		    lp);
+    e = tw_event_new( dst_lp, s->next_link_available_time[s->direction+(2*s->source_dim)][vc] - tw_now(lp), lp);
 
    m = tw_event_data(e);
    m->type = ARRIVAL;
    m->sender_lp = lp->gid;
  
    // Carry on the message info
-   m->source_dim = msg->source_dim;
-   m->source_direction = msg->source_direction;
+   m->source_dim = s->source_dim;
+   m->source_direction = s->direction;
    m->saved_vc = vc;
-  }
-  else
-  {
-   // reschedule the packet send event?
-   bf->c2=0;
-  // ts = RESCHEDULE_DELAY + tw_rand_exponential(lp->rng, (double)RESCHEDULE_DELAY/1000);
-  // e = tw_event_new(lp->gid, ts, lp);
-  // m = tw_event_data(e);
-  // m->type = SEND;
-  // if(msg->packet_ID == TRACK)
-    s->waiting_messages[s->wait_indx]=msg; 
-    s->wait_indx++;
-  }
-  // Carry on the message info
    for( i = 0; i < N_dims; i++ )
       m->dest[i] = msg->dest[i];
    m->dest_lp = msg->dest_lp;
@@ -337,33 +298,27 @@ packet_send(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
    m->travel_start_time = msg->travel_start_time;
   
    m->my_N_hop = msg->my_N_hop;
-   m->my_N_queue = msg->my_N_queue;
-   m->queueing_times = msg->queueing_times;
-  
    tw_event_send(e);
+  }
+  else
+  {
+   // Update the information in the linked list
+   update_waiting_list(s, msg, lp, s->direction, s->source_dim, vc);
+  }
 }
 
 
-void
-packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+void packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
   int i;
   tw_event *e;
   nodes_message *m;
 
-  bf->c3 = 1;
-  // One packet leaves the queue
-  int vc=0; 
-  if(lp->gid > msg->dest_lp)
-     vc=1;
-
-  s->node_queue_length[msg->source_direction+(2*msg->source_dim)][vc]--;
   s->N_wait_to_be_processed--;
   
   if(lp->gid==msg->dest_lp)
     {
       // one packet arrives and dies
-      bf->c3 = 0;
 	N_finished++;
 	int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
 	N_finished_storage[index]++;
@@ -371,8 +326,6 @@ packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 	if (max_latency<tw_now(lp) - msg->travel_start_time)
 	  max_latency=tw_now(lp) - msg->travel_start_time;
 	total_hops += msg->my_N_hop;
-	total_queue_length += msg->my_N_queue;
-	queueing_times_sum += msg->queueing_times;
     }
   else
     {
@@ -395,9 +348,6 @@ packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
       m->travel_start_time = msg->travel_start_time;
 
       m->my_N_hop = msg->my_N_hop;
-      m->my_N_queue = msg->my_N_queue;
-      m->queueing_times = msg->queueing_times;
-
       tw_event_send(e);
     }
 }
@@ -405,7 +355,6 @@ packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 void 
 packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
-  //unsigned long long i;
   int i;
   tw_lpid dst_lp;
   tw_stime ts;
@@ -417,10 +366,10 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
   m = tw_event_data(e);
   m->type = SEND;
   m->transmission_time = PACKET_SIZE;
+  m->saved_vc = -1;
   
   // Set up random destination
   dst_lp = tw_rand_integer(lp->rng,0,N_nodes-1);
-  //rand_total += dst_lp;
   int dim_N[N_dims];
   dim_N[0]=dst_lp;
    
@@ -433,19 +382,18 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 
   // record start time
   m->travel_start_time = tw_now(lp);
-  m->my_N_queue = 0;
   m->my_N_hop = 0;
-  m->queueing_times = 0;
   
   // set up packet ID
   // each packet has a unique ID
-  m->packet_ID = (lp->gid * g_tw_nlp) + s->packet_counter;
+  m->packet_ID = lp->gid + (s->packet_counter * g_tw_nlp);
   
   m->dest_lp = dst_lp;
   tw_event_send(e);	    
 
   if(m->packet_ID == TRACK)
-	  printf("\n (%lf) Packet %lld generated destination LP %lld ", tw_now(lp), m->packet_ID, dst_lp);
+    printf("\n (%lf) Packet %lld generated destination LP %lld ", tw_now(lp), m->packet_ID, dst_lp);
+  
   // One more packet is generating 
   s->packet_counter++;
   int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
@@ -453,35 +401,52 @@ packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 
   // schedule next GENERATE event
   ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL);	
-  //ts = MEAN_INTERVAL;
   e = tw_event_new(lp->gid, ts, lp);
   m = tw_event_data(e);
   m->type = GENERATE;
-  m->saved_vc = -1;
-  
-  m->dest_lp = lp->gid;
   tw_event_send(e);
+}
 
+void schedule_waiting_msg(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
+{
+ if(s->root == NULL)
+   return;
+
+ waiting_list * current = s->root;
+ waiting_list * head = s->root;
+ waiting_list * prev;
+ 
+ int pos=0;
+ while(current != NULL)
+ {
+  if(current->dim == msg->source_dim && current->dir == msg->source_direction && current->vc == msg->saved_vc)
+   {
+    pos = 1;
+    packet_send(s, bf, current->packet, lp); 
+    if(current==head)
+      s->root = head->next;
+    else
+     prev->next = current->next;
+   free(current);
+   break;
+   }
+   else
+   {
+     prev = current;
+     current = current->next;	
+   }
+ } 
 }
 
 void packet_buffer_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
- printf("\n Processing packet");	
- if(s->buffer[msg->source_direction+(msg->source_dim*2)][msg->saved_vc] > 0)	
+ if(s->buffer[msg->source_direction+(msg->source_dim*2)][msg->saved_vc] > 0)
+ {	
   s->buffer[msg->source_direction+(msg->source_dim*2)][msg->saved_vc]--;
+ }
 
  // Send the message waiting in the queue
- if(s->wait_indx!=0)
- { 
-  packet_send(s, bf, s->waiting_messages[0], lp); 
-
-  // Re-arrange the array
-  int i; 
-  for(i=0; i<s->wait_indx-1; i++)
-   s->waiting_messages[i]=s->waiting_messages[i+1];
-  
-  s->wait_indx--;
- }
+  schedule_waiting_msg(s, bf, msg, lp);
 }
 
 void
@@ -508,53 +473,6 @@ event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 }
 
 void
-rc_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
-{
-  int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
-  switch(msg->type)
-    {
-    case GENERATE:
-      N_generated_storage[index]--;
-      s->packet_counter--;
-      tw_rand_reverse_unif(lp->rng);
-      tw_rand_reverse_unif(lp->rng);
-      break;
-    case ARRIVAL:
-      s->next_available_time = msg->saved_available_time;
-      tw_rand_reverse_unif(lp->rng);
-      msg->my_N_hop--;
-      s->N_wait_to_be_processed--;
-      
-      msg->queueing_times -= s->N_wait_to_be_processed;
-
-      //s->node_queue_length[msg->source_direction+(NUM_VC*msg->source_dim)]--;
-      //msg->my_N_queue-=s->node_queue_length[msg->source_direction+(NUM_VC*msg->source_dim)];
-      break;
-    case SEND:      
-      s->source_dim = msg->saved_source_dim;
-      s->direction = msg->saved_direction;
-      //s->next_link_available_time[s->direction][s->source_dim]=      
-	//msg->saved_link_available_time[s->direction][s->source_dim];
-      tw_rand_reverse_unif(lp->rng);
-      break;
-    case PROCESS:
-     if ( bf->c3 == 0 )
-	{
-	  N_finished--;
-	  N_finished_storage[index]--;
-	  total_time -= tw_now(lp) - msg->travel_start_time;
-	  total_hops -= msg->my_N_hop;
-	  total_queue_length -= msg->my_N_queue;
-	  //event_queue_length -= msg->queue_length;
-	  queueing_times_sum -= msg->queueing_times;
-	}
-      //s->node_queue_length[msg->source_direction+(NUM_VC*msg->source_dim)]++;
-      s->N_wait_to_be_processed++;
-      break;
-    }
-}
-
-void
 final(nodes_state * s, tw_lp * lp)
 {
 }
@@ -564,7 +482,7 @@ tw_lptype nodes_lps[] =
 	{
 		(init_f) torus_init,
 		(event_f) event_handler,
-		(revent_f) rc_event_handler,
+		(revent_f) NULL,
 		(final_f) final,
 		(map_f) mapping,
 		sizeof(nodes_state),
@@ -591,11 +509,10 @@ main(int argc, char **argv, char **env)
 	for (i=0; i<N_dims; i++)
 	  N_nodes*=dim_length[i];
 
-	MEAN_INTERVAL = 100;
-
+	MEAN_INTERVAL = 10;
 
 	nlp_per_pe = N_nodes/tw_nnodes()/g_tw_npe;
-	g_tw_events_per_pe = (32 * nlp_per_pe/g_tw_npe) + opt_mem;
+	g_tw_events_per_pe = (512 * nlp_per_pe/g_tw_npe) + opt_mem;
 	tw_define_lps(nlp_per_pe, sizeof(nodes_message), 0);
 
 	for(i = 0; i < g_tw_nlp; i++)
@@ -612,25 +529,18 @@ main(int argc, char **argv, char **env)
 	}
 
 	unsigned long long total_finished_storage[N_COLLECT_POINTS];
-	unsigned long long total_dropped_storage[N_COLLECT_POINTS];
 	unsigned long long total_generated_storage[N_COLLECT_POINTS];
 	unsigned long long wait_length,event_length,N_total_finish,N_total_hop;
 	tw_stime total_time_sum,g_max_latency;
 
 	for( i=0; i<N_COLLECT_POINTS; i++ )
 	  {
-	    MPI_Reduce( &N_dropped_storage[i], &total_dropped_storage[i],1, 
-			MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 	    MPI_Reduce( &N_finished_storage[i], &total_finished_storage[i],1,
                         MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 	    MPI_Reduce( &N_generated_storage[i], &total_generated_storage[i],1,
                         MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 	  }
 
-	MPI_Reduce( &queueing_times_sum, &event_length,1, 
-		    MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &total_queue_length, &wait_length,1, 
-		    MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 	MPI_Reduce( &total_time, &total_time_sum,1, 
 		    MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 	MPI_Reduce( &N_finished, &N_total_finish,1, 
@@ -640,13 +550,8 @@ main(int argc, char **argv, char **env)
 	MPI_Reduce( &max_latency, &g_max_latency,1, 
 		    MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
-//	unsigned long long total_rand_total;
-//	MPI_Reduce( &rand_total, &total_rand_total,1, 
-//		    MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-
 	for( i=1; i<N_COLLECT_POINTS; i++ )
 	  {
-	    total_dropped_storage[i]+=total_dropped_storage[i-1];
 	    total_finished_storage[i]+=total_finished_storage[i-1];
 	    total_generated_storage[i]+=total_generated_storage[i-1];
 	  }
@@ -654,26 +559,19 @@ main(int argc, char **argv, char **env)
 	if(tw_ismaster())
 	  {
 	    printf("\n ****************** \n");
-	    printf("\n Total drop:           %lld; \n",
-		   total_dropped_storage[N_COLLECT_POINTS-1]);
 	    printf("\n total finish:         %lld and %lld; \n",
 		   total_finished_storage[N_COLLECT_POINTS-1],N_total_finish);
 	    printf("\n total generate:       %lld; \n",
 		   total_generated_storage[N_COLLECT_POINTS-1]);
 	    printf("\n total hops:           %lf; \n",
 		   (double)N_total_hop/total_finished_storage[N_COLLECT_POINTS-1]);
-	    printf("\n total wait length:    %lf; \n",
-		   (double)wait_length/total_finished_storage[N_COLLECT_POINTS-1]);
-	    printf("\n total total queued:   %lf; \n",
-		   (double)event_length/total_finished_storage[N_COLLECT_POINTS-1]);
 	    printf("\n average travel time:  %lf; \n\n",
 		   total_time_sum/total_finished_storage[N_COLLECT_POINTS-1]);
 	    
 	    for( i=0; i<N_COLLECT_POINTS; i++ )
 	      {
 		printf(" %d ",i*100/N_COLLECT_POINTS);
-		printf("drop: %lld; finish: %lld; generate: %lld; alive: %lld\n",
-		       total_dropped_storage[i],
+		printf("finish: %lld; generate: %lld; alive: %lld\n",
 		       total_finished_storage[i],
 		       total_generated_storage[i],
 		       total_generated_storage[i]-total_finished_storage[i]);
@@ -686,7 +584,6 @@ main(int argc, char **argv, char **env)
 	      steady_sum+=total_generated_storage[i]-total_finished_storage[i];
 	    printf("\n Steady state, packet alive: %lld\n",
 		   2*steady_sum/N_COLLECT_POINTS);
-//	    printf("Aeverage is %lld\n",total_rand_total/total_generated_storage[N_COLLECT_POINTS-1]);
 	    printf("\nMax latency is %lf\n\n",g_max_latency);
 
 	  }

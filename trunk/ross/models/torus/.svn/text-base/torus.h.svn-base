@@ -7,20 +7,17 @@
 // assume 175MB/s bandwidth, it takes 5.7 ns to transfer 1Byte
 // assume average packet size 1kB, exponential dirstribution
 // assume average processing time 1 us = 1000 ns, exponential dirstribution 
-//#define HOP 8
-//#define SETUP 4000
-#define PACKET_SIZE 256.0
-#define MEAN_PROCESS 10.0
-#define LINK_DELAY 10.0
+#define PACKET_SIZE 1
+#define MEAN_PROCESS 2.0
+#define LINK_DELAY 2.0
 #define NUM_VC 2
-#define NUM_BUF_SLOTS 16
-#define RESCHEDULE_DELAY 1
-//#define MEAN_INTERVAL 100000.0
-static double MEAN_INTERVAL;
+#define NUM_BUF_SLOTS 256
 #define N_PACKETS_PER_NODE 8
 
+static double MEAN_INTERVAL;
 // finite buffer
 #define BUFFER_SIZE 2
+#define N_dims 5
 
 static int buffer_size = 16;
 static int N_packet_target = 100;
@@ -31,19 +28,20 @@ static int       dim_length[] = {4,4,4,4,2};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
 //static int       dim_length[] = {8,8,8,8,8,8,8,8};
 //static int       dim_length[] = {4,4};
-#define N_dims 5
 
 typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_state nodes_state;
 typedef struct nodes_message nodes_message;
+typedef struct waiting_list waiting_list;
 
 // important parameters for the torus simulation
 // build your own torus
 // static int       N_dims = 4;
 
 // Debug
-#define TRACK 260
+#define TRACK 340038
 #define N_COLLECT_POINTS 20
+#define QUEUE_SIZE 100
 
 // Test RC code in serial mode
 int g_test_rc = 0;
@@ -69,13 +67,15 @@ struct nodes_state
   int dim_position[N_dims];
   int neighbour_minus_lpID[N_dims];
   int neighbour_plus_lpID[N_dims];
-  int node_queue_length[2*N_dims][NUM_VC];
   int N_wait_to_be_processed;
   int source_dim;
   int direction;
   int generate_counter;
-  nodes_message** waiting_messages;
-  int wait_indx;
+  //first element of linked list
+  struct waiting_list * root;
+
+  // pointer to the linked list
+  struct waiting_list * ptr;
 };
 
 struct nodes_message
@@ -100,12 +100,20 @@ struct nodes_message
   int next_stop;
 };
 
+struct waiting_list
+{
+   int dim;
+   int dir;
+   int vc;
+   nodes_message * packet;
+   struct waiting_list * next;
+   struct waiting_list * prev;
+};
 tw_stime         average_travel_time = 0;
 tw_stime         total_time = 0;
 tw_stime         max_latency = 0;
 
 static unsigned long long       N_finished = 0;
-//static unsigned long long       N_dropped = 0;
 
 static unsigned long long       N_finished_storage[N_COLLECT_POINTS];
 static unsigned long long       N_dropped_storage[N_COLLECT_POINTS];
@@ -120,7 +128,6 @@ static int       half_length[N_dims];
 
 static int	 nlp_per_pe;
 static int	 opt_mem = 3000;
-//static int       buffer_size = 10;
 
 tw_stime g_tw_last_event_ts = -1.0;
 tw_lpid  g_tw_last_event_lpid = 0;
