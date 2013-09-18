@@ -147,6 +147,7 @@ torus_init(nodes_state * s, tw_lp * lp)
   m->type = GENERATE;
 
   m->dest_lp = lp->gid;
+  m->src_lp = lp->gid;
   tw_event_send(e);
 
 }
@@ -169,6 +170,13 @@ void torus_packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_
   dst_lp = tw_rand_integer(&(lp->rng[GENERATE]),0,N_nodes-1);
   if( dst_lp == lp->gid )
     dst_lp = (dst_lp + 1) % N_nodes;
+
+  if( torus_mapping(dst_lp) != torus_mapping(lp->gid) )
+    {
+    printf("GENERATE REMOTE PACKET: src lp(%ld) to dest lp(%ld) at %lf \n", 
+	   dst_lp, lp->gid, tw_now(lp) );
+    fflush(stdout);
+    }
 
   // convert lp dest to torus coordinates and mod lp state vars
   if (lp->gid !=  dst_lp )  
@@ -212,6 +220,7 @@ void torus_packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_
   // each packet has a unique ID
   m->packet_ID = lp->gid + g_tw_nlp*s->packet_counter;
   m->dest_lp = dst_lp;
+  m->src_lp = lp->gid;
   m->source_dim = s->source_dim;
   m->source_direction = s->direction;
   tw_event_send(e);
@@ -228,6 +237,7 @@ void torus_packet_generate(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_
   next_gen_m = tw_event_data(e);
   next_gen_m->type = GENERATE;
   next_gen_m->dest_lp = lp->gid;
+  next_gen_m->src_lp = lp->gid;
   tw_event_send(e);
 }
 
@@ -291,6 +301,7 @@ void torus_packet_arrive(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp
   for( i = 0; i < N_dims; i++ )
     m->dest[i] = msg->dest[i];
   m->dest_lp = msg->dest_lp;
+  m->src_lp = msg->src_lp;
   m->transmission_time = msg->transmission_time;
   
   m->source_dim = msg->source_dim;
@@ -364,6 +375,7 @@ void torus_packet_process(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_l
       for( i = 0; i < N_dims; i++ )
 	m->dest[i] = msg->dest[i];
       m->dest_lp = msg->dest_lp;
+      m->src_lp = msg->src_lp;
       m->transmission_time = msg->transmission_time;
       
       m->source_dim = msg->source_dim;
@@ -384,6 +396,13 @@ void torus_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp
   nodes_state saved_s;
   tw_rng_stream saved_rng;
 
+  if( torus_mapping(msg->dest_lp) != torus_mapping(msg->src_lp) )
+    {
+      printf("Remote Event: SrcLP %ld to Dest LP %ld at %lf for MsgType %d \n",
+	     msg->src_lp, msg->dest_lp, tw_now(lp), msg->type );
+      fflush(stdout);
+    }
+
   if( g_tw_last_event_ts == tw_now(lp) )
     {
       printf("TIE EVENT: LAST: %ld, %d, %lf .....CURRENT: %ld, %d, %lf\n",
@@ -393,6 +412,7 @@ void torus_event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp
 	     lp->gid,
 	     msg->type,
 	     tw_now(lp) );
+      fflush(stdout);
     }
 
   g_tw_last_event_lpid = lp->gid;

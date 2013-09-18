@@ -24,8 +24,9 @@ static double ARRIVAL_RATE = 0.0000001;
 //static int       dim_length[] = {32,32};
 //static int       dim_length[] = {64,64,64,64};
 //static int       dim_length[] = {2,2,2,2,2,2,2,2,2,2};
-static int       dim_length[] = {8,8,8,8,8,8,8,8};
-#define N_dims 8
+//static int       dim_length[] = {8,8,8,8,8,8,8,8};
+static int       dim_length[] = {4,4,4,4};
+#define N_dims 4
 
 typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_state nodes_state;
@@ -79,7 +80,8 @@ struct nodes_message
   int saved_source_dim;
   int saved_direction;
   int dest[N_dims];
-  int dest_lp;
+  tw_lpid dest_lp;
+  tw_lpid src_lp;
   int my_N_queue;
   int my_N_hop;
   int queueing_times;
