@@ -98,6 +98,7 @@ if( lp->gid == TRACK_LP )
      {
        s->buffer[ j ][ i ] = NUM_BUF_SLOTS;
        s->next_link_available_time[ j ][ i ] = 0.0;
+       s->next_credit_available_time[j][i] = 0.0;
      }
    }
   // initialize each node's waiting linked list
@@ -307,7 +308,10 @@ credit_send( nodes_state * s,
     ts =  credit_delay;
   
     //buf_e = tw_event_new( lp->gid, ts, lp );
-    buf_e = tw_event_new(msg->sender_lp, 0.1, lp);
+    s->next_credit_available_time[2 * msg->source_dim + msg->source_direction][0] = max(s->next_credit_available_time[2 * msg->source_dim + msg->source_direction][0], tw_now(lp) );
+    s->next_credit_available_time[2 * msg->source_dim + msg->source_direction][0] += 2.0;
+
+    buf_e = tw_event_new(msg->sender_lp, s->next_credit_available_time[2 * msg->source_dim + msg->source_direction][0] - tw_now(lp), lp);
 
     m = tw_event_data(buf_e);
     m->saved_vc = msg->saved_vc;
@@ -488,13 +492,13 @@ packet_send( nodes_state * s,
     ts = tw_rand_exponential( lp->rng, ( double )head_delay/10000 )+
                                head_delay;
 
-  //  s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] = max( s->next_link_available_time[ tmp_dir + ( tmp_dim * 2 )][0], tw_now(lp) );
-  //  s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] += 0.5;
-   s->next_available_time = max(s->next_available_time, tw_now(lp));
-    s->next_available_time += 0.5;
+    s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] = max( s->next_link_available_time[ tmp_dir + ( tmp_dim * 2 )][0], tw_now(lp) );
+    s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] += 4.0;
+ //   s->next_available_time = max(s->next_available_time, tw_now(lp));
+//    s->next_available_time += 0.5;
     
-//    e = tw_event_new( dst_lp, s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] + head_delay - tw_now(lp), lp );
-    e = tw_event_new( dst_lp, s->next_available_time + ts - tw_now(lp), lp);
+    e = tw_event_new( dst_lp, s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] + head_delay - tw_now(lp), lp );
+//    e = tw_event_new( dst_lp, s->next_available_time + ts - tw_now(lp), lp);
 
  //   s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] += 1.0;
 
@@ -588,8 +592,9 @@ void packet_process( nodes_state * s,
   if( lp->gid == msg->dest_lp )
     {   
         credit_send( s, bf, lp, msg ); 
-        ts = 0.01 + msg->my_N_hop * (delay + link_delay);
-        e = tw_event_new(lp->gid + N_nodes, ts + OVERHEADS + MEAN_PROCESS, lp);
+        
+	ts = 0.01 + msg->my_N_hop * (delay + link_delay) + MEAN_PROCESS;
+        e = tw_event_new(lp->gid + N_nodes, ts, lp);
 	m = tw_event_data(e);
         m->type = MPI_RECV;
         m->travel_start_time = msg->travel_start_time;
@@ -599,10 +604,6 @@ void packet_process( nodes_state * s,
 	m->count = msg->count;
 	tw_event_send(e);
 	 //printf("\n Last message arrived at %lf travel start time %lf ", tw_now( lp ), m->travel_start_time );
-	N_finished_packets++;
-	int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
-	N_finished_storage[index]++;
-	total_hops += msg->my_N_hop;
     }
   else
     {
@@ -760,6 +761,11 @@ void mpi_msg_recv(mpi_process * p,
   {
     N_finished_msgs++;
     
+// For torus-dragonfly comparison only place the end time here
+    N_finished_packets++;
+    int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
+    N_finished_storage[index]++;
+
     total_time += tw_now( lp ) - msg->travel_start_time;
 
 
@@ -956,11 +962,11 @@ main(int argc, char **argv, char **env)
 	tw_define_lps(nlp_nodes_per_pe + nlp_mpi_procs_per_pe, sizeof(nodes_message), 0);
 
 	head_delay = (1 / BANDWIDTH) * HEADER_SIZE;
-
+	
 	if( mpi_message_size < PACKET_SIZE_LIMIT )
- 	  link_delay = (1 / BANDWIDTH) * mpi_message_size;
+ 	  link_delay = (1 / BANDWIDTH) * (mpi_message_size - HEADER_SIZE);
         else
-	  link_delay = (1 / BANDWIDTH) * PACKET_SIZE_LIMIT;
+	  link_delay = (1 / BANDWIDTH) * (PACKET_SIZE_LIMIT - HEADER_SIZE);
 
         // BG/L torus network paper: Tokens are 32 byte chunks that is why the credit delay is adjusted according to bandwidth * 32
 	credit_delay = 1/BANDWIDTH * 8;

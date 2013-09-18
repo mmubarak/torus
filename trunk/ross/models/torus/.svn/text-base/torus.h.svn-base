@@ -38,7 +38,8 @@ BG/Q are more than the BG/P, so I have adjusted the overheads for BG/Q according
   #define PACKET_SIZE_LIMIT 512
   #define VC_SIZE 8192 /*Each VC has a specific number of tokens and each token is of 32 bytes */
   #define NUM_BUF_SLOTS VC_SIZE/TOKEN_SIZE
-  static int       dim_length[] = {4,4,4,8,2};
+//  static int       dim_length[] = {8,4,4,4,4,4,2};
+  static int dim_length[] = {8,4,4,4,2};
 #endif
 
 #define MPI_MESSAGE_LIMIT 50 /*Number of messages to be injected by each node */
@@ -116,6 +117,7 @@ struct nodes_state
   unsigned long long packet_counter;            
   tw_stime next_available_time;                 
   tw_stime next_link_available_time[2*N_dims][NUM_VC]; 
+  tw_stime next_credit_available_time[2*N_dims][NUM_VC];
   unsigned int buffer[2*N_dims][NUM_VC]; 
   int dim_position[N_dims];
   int neighbour_minus_lpID[N_dims];
