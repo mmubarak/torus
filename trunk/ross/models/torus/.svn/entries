@@ -1,14 +1,14 @@
 10
 
 dir
-570
+571
 https://subversion.cs.rpi.edu/svn/rossnet/trunk/ross/models/torus
 https://subversion.cs.rpi.edu/svn/rossnet
 
 
 
-2012-06-11T13:22:34.438172Z
-570
+2012-06-11T15:24:02.454777Z
+571
 liun2@LAB.CS.RPI.EDU
 
 
@@ -440,10 +440,10 @@ file
 
 
 
-2013-09-18T19:51:25.000000Z
-152172f76380c857e73ebf247e35dffa
-2012-06-11T13:22:34.438172Z
-570
+2013-09-18T19:51:27.000000Z
+f5f2186e36c392b59e2349b44b697017
+2012-06-11T15:24:02.454777Z
+571
 liun2@LAB.CS.RPI.EDU
 
 
@@ -466,7 +466,7 @@ liun2@LAB.CS.RPI.EDU
 
 
 
-23337
+20570
 
 torus.h.bak
 file
