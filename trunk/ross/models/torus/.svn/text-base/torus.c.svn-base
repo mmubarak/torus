@@ -636,16 +636,12 @@ void packet_arrive( nodes_state * s,
   if( lp->gid == msg->dest_lp )
     {   
 	bf->c1 = 0;
-    
         if( msg->chunk_id == num_chunks - 1 )    
         {
-		//ts = MEAN_PROCESS + OVERHEADS;
-		//ts += MEAN_PROCESS;
 	        e = tw_event_new(lp->gid + N_nodes, ts, lp);
 		m = tw_event_data(e);
 	        m->type = MPI_RECV;
 	        m->travel_start_time = msg->travel_start_time;
-//		m->origin_lp = msg->origin_lp;
 		m->my_N_hop = msg->my_N_hop;
 		m->packet_ID = msg->packet_ID;
 		m->count = msg->count;
@@ -655,14 +651,9 @@ void packet_arrive( nodes_state * s,
     }
   else
     {
-//      Additional hop delay for large messages
-      //if( mpi_message_size > 1024 )
-	//delay += (HOP_DELAY/12 * num_packets);
       e = tw_event_new(lp->gid, ts , lp);
-//      e = tw_event_new(lp->gid, HOP_DELAY * (msg->count + 1), lp);
       m = tw_event_data( e );
       m->type = SEND;
- //     m->origin_lp = msg->origin_lp;
       
       // Carry on the message info
       for( i = 0; i < N_dims; i++ )
@@ -1007,7 +998,6 @@ node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 	case ARRIVAL:
 		   {
 		     msg->my_N_hop--;
-		     //if(!bf->c1)
   		     tw_rand_reverse_unif(lp->rng);
 		     tw_rand_reverse_unif(lp->rng);
 		   }
@@ -1016,7 +1006,7 @@ node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 	case SEND:
 		 {
 	            tw_rand_reverse_unif(lp->rng);
-		    if(!bf->c3)
+		    if(bf->c3)
 		     {
                         int next_dim = msg->saved_src_dim;
 			int next_dir = msg->saved_src_dir;
